@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F1625"/>
+      <stop offset="100%" stop-color="#0C1F38"/>
+    </linearGradient>
+    <linearGradient id="bar1" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="bar2" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="bar3" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#6EE7B7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="128" height="128" rx="26" fill="url(#bg)"/>
+
+  <!-- Subtle inner glow -->
+  <rect width="128" height="128" rx="26" fill="none" stroke="#34D399" stroke-width="1" opacity="0.08"/>
+
+  <!-- Bar 1 (shortest) -->
+  <rect x="14" y="82" width="22" height="28" rx="5" fill="url(#bar1)"/>
+  <!-- Bar 2 (medium) -->
+  <rect x="47" y="56" width="22" height="54" rx="5" fill="url(#bar2)"/>
+  <!-- Bar 3 (tallest) -->
+  <rect x="80" y="24" width="22" height="86" rx="5" fill="url(#bar3)"/>
+
+  <!-- Trend line connecting bar tops -->
+  <polyline
+    points="25,76  58,50  91,18"
+    stroke="#FFFFFF"
+    stroke-width="2.5"
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.6"/>
+
+  <!-- Arrow head at top-right -->
+  <path
+    d="M82 18 L91 18 L91 27"
+    stroke="#FFFFFF"
+    stroke-width="2.5"
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.6"/>
+
+  <!-- Dot on trend line top -->
+  <circle cx="91" cy="18" r="3.5" fill="#FFFFFF" opacity="0.9"/>
+</svg>

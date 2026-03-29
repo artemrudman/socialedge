@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SocialEdge</title>
+  <link rel="stylesheet" href="popup.css"/>
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header class="header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 28 28" fill="none">
+        <rect x="2"  y="18" width="6" height="8" rx="2" fill="#34D399" opacity=".45"/>
+        <rect x="11" y="11" width="6" height="15" rx="2" fill="#34D399" opacity=".72"/>
+        <rect x="20" y="3"  width="6" height="23" rx="2" fill="#34D399"/>
+        <polyline points="5,15 14,8 23,1" stroke="white" stroke-width="1.8"
+                  fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".6"/>
+      </svg>
+      <span class="brand-name">SocialEdge</span>
+    </div>
+    <span class="last-updated" id="last-updated">—</span>
+  </header>
+
+  <!-- ── Hero score ─────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-score-row">
+      <span class="hero-number" id="overall">—</span>
+      <div class="hero-trend" id="overall-trend"></div>
+    </div>
+    <div class="hero-caption">Social Selling Score <span class="hero-max">/ 100</span></div>
+    <div class="hero-bar-track">
+      <div class="hero-bar-fill" id="overall-bar"></div>
+    </div>
+  </section>
+
+  <!-- ── Pillars (2×2) ──────────────────────────────────── -->
+  <section class="pillars-wrap">
+    <div class="pillars-grid">
+
+      <div class="pillar" data-key="prof_brand">
+        <div class="pillar-top">
+          <span class="pillar-label">Professional<br>Brand</span>
+          <span class="pillar-score" id="val-pb">—</span>
+        </div>
+        <div class="pillar-bottom">
+          <div class="pillar-track"><div class="pillar-fill" id="bar-pb"></div></div>
+          <span class="pillar-trend" id="trend-pb"></span>
+        </div>
+      </div>
+
+      <div class="pillar" data-key="find_right_people">
+        <div class="pillar-top">
+          <span class="pillar-label">Find Right<br>People</span>
+          <span class="pillar-score" id="val-frp">—</span>
+        </div>
+        <div class="pillar-bottom">
+          <div class="pillar-track"><div class="pillar-fill" id="bar-frp"></div></div>
+          <span class="pillar-trend" id="trend-frp"></span>
+        </div>
+      </div>
+
+      <div class="pillar" data-key="insight_engagement">
+        <div class="pillar-top">
+          <span class="pillar-label">Insight<br>Engagement</span>
+          <span class="pillar-score" id="val-ie">—</span>
+        </div>
+        <div class="pillar-bottom">
+          <div class="pillar-track"><div class="pillar-fill" id="bar-ie"></div></div>
+          <span class="pillar-trend" id="trend-ie"></span>
+        </div>
+      </div>
+
+      <div class="pillar" data-key="relationship">
+        <div class="pillar-top">
+          <span class="pillar-label">Strong<br>Relationships</span>
+          <span class="pillar-score" id="val-rs">—</span>
+        </div>
+        <div class="pillar-bottom">
+          <div class="pillar-track"><div class="pillar-fill" id="bar-rs"></div></div>
+          <span class="pillar-trend" id="trend-rs"></span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Tips panel — appears on pillar hover -->
+    <div class="tips-panel" id="tips-panel">
+      <div class="tips-header">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <circle cx="6.5" cy="6.5" r="6" stroke="#34D399" stroke-width="1.2"/>
+          <path d="M6.5 5.5v4M6.5 3.5v1" stroke="#34D399" stroke-width="1.4"
+                stroke-linecap="round"/>
+        </svg>
+        <span id="tips-title">How to improve</span>
+      </div>
+      <ul class="tips-list" id="tips-list"></ul>
+    </div>
+  </section>
+
+  <!-- ── Benchmarks ─────────────────────────────────────── -->
+  <section class="benchmarks">
+    <div class="bench-row">
+      <span class="bench-type">Industry</span>
+      <span class="bench-name" id="bench-ind-name">—</span>
+      <div class="bench-right">
+        <span class="bench-rank" id="bench-ind-top">—</span>
+        <span class="bench-ssi" id="bench-ind-ssi">— SSI</span>
+      </div>
+    </div>
+    <div class="bench-divider"></div>
+    <div class="bench-row">
+      <span class="bench-type">Network</span>
+      <span class="bench-name"></span>
+      <div class="bench-right">
+        <span class="bench-rank" id="bench-net-top">—</span>
+        <span class="bench-ssi" id="bench-net-ssi">— SSI</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Actions ────────────────────────────────────────── -->
+  <section class="actions">
+    <button id="btn-refresh" class="btn-primary">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M12 7A5 5 0 1 1 7 2" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round"/>
+        <path d="M7 2l2-2M7 2l2 2" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Refresh Score
+    </button>
+    <button id="btn-export" class="btn-ghost">Export</button>
+  </section>
+
+  <div id="status-bar" class="status-bar hidden"></div>
+
+  <!-- ── History ────────────────────────────────────────── -->
+  <details class="history-wrap" id="history-details">
+    <summary class="history-summary">
+      <span>Score History</span>
+      <span class="history-count" id="history-count">0 entries</span>
+    </summary>
+    <div class="history-scroll">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Date</th><th>Score</th><th>PB</th><th>FRP</th><th>IE</th><th>RS</th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="6" class="empty-cell">No data yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+</body>
+<script src="popup.js"></script>
+</html>
