@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SocialEdge",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Track and grow your LinkedIn Social Selling Score — automatically, every day.",
 
   "permissions": [
@@ -10,7 +10,8 @@
     "storage",
     "alarms",
     "scripting",
-    "tabs"
+    "tabs",
+    "sidePanel"
   ],
   "host_permissions": [
     "*://*.linkedin.com/*"
@@ -21,9 +22,12 @@
   },
 
   "action": {
-    "default_popup": "popup.html",
     "default_icon": "icons/icon.svg",
     "default_title": "SocialEdge — Your Selling Score"
+  },
+
+  "side_panel": {
+    "default_path": "popup.html"
   },
 
   "icons": {

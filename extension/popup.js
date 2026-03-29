@@ -109,6 +109,9 @@ function render(current, previous) {
   const p    = current.parsed;
   const prev = previous?.parsed;
 
+  // Make scores available to the detail screen
+  lastPillarData = { ...p, _prev: prev || null };
+
   // Overall
   const overallVal = p.overall ?? 0;
   animateNum($('overall'), overallVal);
@@ -147,20 +150,20 @@ function render(current, previous) {
     applyTrend($(trendId), trend(val, prev?.[key]));
   });
 
-  // Benchmarks
+  // Benchmarks — full name, no truncation
   const ind = p.industry || {};
   const net = p.network  || {};
 
-  $('bench-ind-name').textContent = ind.name || '';
-  $('bench-ind-ssi').textContent  = fmt(ind.ssi) + ' SSI';
+  $('bench-ind-name').textContent = ind.name || '—';
+  $('bench-ind-ssi').textContent  = ind.ssi != null ? fmt(ind.ssi) + ' SSI' : '—';
   const indTopEl = $('bench-ind-top');
-  indTopEl.textContent  = ind.top != null ? `Top ${ind.top}%` : '—';
-  indTopEl.className    = 'bench-rank ' + rankClass(ind.top);
+  indTopEl.textContent = ind.top != null ? `Top ${ind.top}%` : '—';
+  indTopEl.className   = 'bench-rank ' + rankClass(ind.top);
 
-  $('bench-net-ssi').textContent  = fmt(net.ssi) + ' SSI';
+  $('bench-net-ssi').textContent  = net.ssi != null ? fmt(net.ssi) + ' SSI' : '—';
   const netTopEl = $('bench-net-top');
-  netTopEl.textContent  = net.top != null ? `Top ${net.top}%` : '—';
-  netTopEl.className    = 'bench-rank ' + rankClass(net.top);
+  netTopEl.textContent = net.top != null ? `Top ${net.top}%` : '—';
+  netTopEl.className   = 'bench-rank ' + rankClass(net.top);
 }
 
 // ── Render history table ────────────────────────────────────────────────────────
@@ -206,29 +209,84 @@ function showStatus(msg, type, duration = 5000) {
   if (duration > 0) setTimeout(() => { el.className = 'status-bar hidden'; }, duration);
 }
 
-// ── Tips panel (pillar hover) ────────────────────────────────────────────────────
-const tipsPanel = $('tips-panel');
-const tipsTitle = $('tips-title');
-const tipsList  = $('tips-list');
+// ── Pillar detail screen (click → slide in from right) ───────────────────────
+const detailScreen = $('detail-screen');
+let   lastPillarData = {};   // holds current parsed scores for detail view
+
+function openDetail(key) {
+  const info  = ADVICE[key];
+  const p     = lastPillarData;
+  if (!info) return;
+
+  const val   = p[key];
+  const prev  = p._prev?.[key];
+  const color = scoreColor(val, 25);
+  const t     = trend(val, prev);
+
+  $('detail-label').textContent = info.name;
+
+  const scoreEl = $('detail-score');
+  scoreEl.textContent = val != null ? Number(val).toFixed(1) : '—';
+  scoreEl.style.color = color;
+
+  const trendEl = $('detail-trend');
+  if (t && t.dir !== 'flat') {
+    trendEl.textContent = (t.dir === 'up' ? '↑ ' : '↓ ') + t.label;
+    trendEl.className   = `detail-trend ${t.dir}`;
+  } else {
+    trendEl.textContent = '';
+    trendEl.className   = 'detail-trend flat';
+  }
+
+  const barEl = $('detail-bar');
+  barEl.style.background = color;
+  // Reset then animate
+  barEl.style.transition = 'none';
+  barEl.style.width = '0%';
+  requestAnimationFrame(() => {
+    barEl.style.transition = '';
+    barEl.style.width = val != null ? `${(val / 25) * 100}%` : '0%';
+  });
+
+  $('detail-tips').innerHTML = info.tips
+    .map((tip, i) => `<li>
+      <span class="tip-num">${i + 1}</span>
+      <span class="tip-text">${tip}</span>
+    </li>`).join('');
+
+  detailScreen.classList.add('open');
+}
+
+function closeDetail() {
+  detailScreen.classList.remove('open');
+}
 
 document.querySelectorAll('.pillar').forEach((card) => {
-  card.addEventListener('mouseenter', () => {
-    const info = ADVICE[card.dataset.key];
-    if (!info) return;
-    tipsTitle.textContent = `Improve ${info.name}`;
-    tipsList.innerHTML    = info.tips.map((t) => `<li>${t}</li>`).join('');
-    tipsPanel.classList.add('visible');
-  });
-  card.addEventListener('mouseleave', () => {
-    tipsPanel.classList.remove('visible');
-  });
+  card.style.cursor = 'pointer';
+  card.addEventListener('click', () => openDetail(card.dataset.key));
 });
 
+$('back-btn').addEventListener('click', closeDetail);
+
 // ── Initial load ────────────────────────────────────────────────────────────────
-chrome.runtime.sendMessage({ action: 'getHistory' }, (history) => {
-  if (history?.length) {
-    render(history[0], history[1]);
-    renderHistory(history);
+function loadAndRender() {
+  chrome.runtime.sendMessage({ action: 'getHistory' }, (history) => {
+    if (history?.length) {
+      render(history[0], history[1]);
+      renderHistory(history);
+    }
+  });
+}
+loadAndRender();
+
+// ── Live refresh when background stores new data ──────────────────────────────
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.ssiHistory) {
+    const history = changes.ssiHistory.newValue || [];
+    if (history.length) {
+      render(history[0], history[1]);
+      renderHistory(history);
+    }
   }
 });
 
@@ -263,7 +321,18 @@ $('btn-refresh').addEventListener('click', () => {
   });
 });
 
-// ── Export button ───────────────────────────────────────────────────────────────
+// ── History screen ──────────────────────────────────────────────────────────────
+const historyScreen = $('history-screen');
+
+$('btn-history').addEventListener('click', () => {
+  historyScreen.classList.add('open');
+});
+
+$('history-back-btn').addEventListener('click', () => {
+  historyScreen.classList.remove('open');
+});
+
+// ── Export button (inside history screen) ───────────────────────────────────────
 $('btn-export').addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'getHistory' }, (history) => {
     const blob = new Blob([JSON.stringify(history, null, 2)], { type: 'application/json' });

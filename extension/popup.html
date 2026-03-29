@@ -8,34 +8,37 @@
 </head>
 <body>
 
-  <!-- ── Header ─────────────────────────────────────────── -->
+  <!-- ── Header ───────────────────────────────────────────────── -->
   <header class="header">
     <div class="brand">
       <svg class="brand-icon" viewBox="0 0 28 28" fill="none">
-        <rect x="2"  y="18" width="6" height="8" rx="2" fill="#34D399" opacity=".45"/>
-        <rect x="11" y="11" width="6" height="15" rx="2" fill="#34D399" opacity=".72"/>
-        <rect x="20" y="3"  width="6" height="23" rx="2" fill="#34D399"/>
-        <polyline points="5,15 14,8 23,1" stroke="white" stroke-width="1.8"
-                  fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".6"/>
+        <line x1="4" y1="22" x2="14" y2="11" stroke="#34D399" stroke-width="2" stroke-linecap="round" opacity=".6"/>
+        <line x1="14" y1="11" x2="24" y2="3"  stroke="#34D399" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="4"  cy="22" r="3" fill="#34D399" opacity=".45"/>
+        <circle cx="14" cy="11" r="3" fill="#34D399" opacity=".72"/>
+        <circle cx="24" cy="3"  r="3" fill="#34D399"/>
       </svg>
-      <span class="brand-name">SocialEdge</span>
+      <div class="brand-text">
+        <span class="brand-name">SocialEdge</span>
+        <span class="brand-sub">LinkedIn Selling Score</span>
+      </div>
     </div>
     <span class="last-updated" id="last-updated">—</span>
   </header>
 
-  <!-- ── Hero score ─────────────────────────────────────── -->
+  <!-- ── Hero score ────────────────────────────────────────────── -->
   <section class="hero">
     <div class="hero-score-row">
       <span class="hero-number" id="overall">—</span>
       <div class="hero-trend" id="overall-trend"></div>
     </div>
-    <div class="hero-caption">Social Selling Score <span class="hero-max">/ 100</span></div>
+    <div class="hero-caption">Overall Social Selling Score <span class="hero-max">/ 100</span></div>
     <div class="hero-bar-track">
       <div class="hero-bar-fill" id="overall-bar"></div>
     </div>
   </section>
 
-  <!-- ── Pillars (2×2) ──────────────────────────────────── -->
+  <!-- ── Pillars 2×2 ──────────────────────────────────────────── -->
   <section class="pillars-wrap">
     <div class="pillars-grid">
 
@@ -85,64 +88,116 @@
 
     </div>
 
-    <!-- Tips panel — appears on pillar hover -->
-    <div class="tips-panel" id="tips-panel">
-      <div class="tips-header">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-          <circle cx="6.5" cy="6.5" r="6" stroke="#34D399" stroke-width="1.2"/>
-          <path d="M6.5 5.5v4M6.5 3.5v1" stroke="#34D399" stroke-width="1.4"
-                stroke-linecap="round"/>
-        </svg>
-        <span id="tips-title">How to improve</span>
-      </div>
-      <ul class="tips-list" id="tips-list"></ul>
-    </div>
   </section>
 
-  <!-- ── Benchmarks ─────────────────────────────────────── -->
+  <!-- ── Pillar detail screen (slides in from right on click) ──── -->
+  <div class="detail-screen" id="detail-screen">
+    <header class="detail-header">
+      <button class="back-btn" id="back-btn" aria-label="Back">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+    </header>
+
+    <div class="detail-body">
+      <div class="detail-label" id="detail-label">—</div>
+
+      <div class="detail-score-row">
+        <span class="detail-score" id="detail-score">—</span>
+        <span class="detail-max">/ 25</span>
+        <span class="detail-trend" id="detail-trend"></span>
+      </div>
+
+      <div class="detail-bar-track">
+        <div class="detail-bar-fill" id="detail-bar"></div>
+      </div>
+
+      <div class="detail-section-title">How to improve</div>
+      <ul class="detail-tips" id="detail-tips"></ul>
+    </div>
+  </div>
+
+  <!-- ── Benchmarks ────────────────────────────────────────────── -->
   <section class="benchmarks">
+
     <div class="bench-row">
       <span class="bench-type">Industry</span>
-      <span class="bench-name" id="bench-ind-name">—</span>
-      <div class="bench-right">
-        <span class="bench-rank" id="bench-ind-top">—</span>
-        <span class="bench-ssi" id="bench-ind-ssi">— SSI</span>
+      <div class="bench-info">
+        <div class="bench-name" id="bench-ind-name">—</div>
+        <div class="bench-stats">
+          <span class="bench-rank" id="bench-ind-top">—</span>
+          <span class="bench-ssi"  id="bench-ind-ssi">—</span>
+        </div>
       </div>
     </div>
+
     <div class="bench-divider"></div>
+
     <div class="bench-row">
       <span class="bench-type">Network</span>
-      <span class="bench-name"></span>
-      <div class="bench-right">
-        <span class="bench-rank" id="bench-net-top">—</span>
-        <span class="bench-ssi" id="bench-net-ssi">— SSI</span>
+      <div class="bench-info">
+        <div class="bench-stats">
+          <span class="bench-rank" id="bench-net-top">—</span>
+          <span class="bench-ssi"  id="bench-net-ssi">—</span>
+        </div>
       </div>
     </div>
+
   </section>
 
-  <!-- ── Actions ────────────────────────────────────────── -->
+  <!-- ── Actions ───────────────────────────────────────────────── -->
   <section class="actions">
     <button id="btn-refresh" class="btn-primary">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M12 7A5 5 0 1 1 7 2" stroke="currentColor" stroke-width="1.6"
-              stroke-linecap="round"/>
-        <path d="M7 2l2-2M7 2l2 2" stroke="currentColor" stroke-width="1.6"
-              stroke-linecap="round" stroke-linejoin="round"/>
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M11 6.5A4.5 4.5 0 1 1 6.5 2" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M6.5 2l1.8-1.8M6.5 2l1.8 1.8" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       Refresh Score
     </button>
-    <button id="btn-export" class="btn-ghost">Export</button>
+    <button id="btn-export" class="btn-ghost">Export JSON</button>
   </section>
 
   <div id="status-bar" class="status-bar hidden"></div>
 
-  <!-- ── History ────────────────────────────────────────── -->
-  <details class="history-wrap" id="history-details">
-    <summary class="history-summary">
-      <span>Score History</span>
+  <!-- ── History trigger button ──────────────────────────────────── -->
+  <button class="history-trigger" id="btn-history">
+    <span class="history-trigger-left">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M7 4.5V7l2 1.5" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Score History
+    </span>
+    <div class="history-trigger-right">
       <span class="history-count" id="history-count">0 entries</span>
-    </summary>
-    <div class="history-scroll">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M3 5l4.5 4.5L12 5" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </button>
+
+  <!-- ── History full screen (slides up from bottom) ──────────────── -->
+  <div class="history-screen" id="history-screen">
+    <header class="history-screen-header">
+      <button class="back-btn" id="history-back-btn" aria-label="Back">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M9 13L9 5M9 5L5 9M9 5L13 9" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+      <span class="history-screen-title">Score History</span>
+      <button id="btn-export" class="export-btn">Export</button>
+    </header>
+
+    <div class="history-screen-body">
       <table class="history-table">
         <thead>
           <tr>
@@ -154,7 +209,7 @@
         </tbody>
       </table>
     </div>
-  </details>
+  </div>
 
 </body>
 <script src="popup.js"></script>
