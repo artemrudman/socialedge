@@ -25,6 +25,26 @@
 
 html { font-size: 13px; }
 
+/* ── Global scrollbar ───────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #26262F;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #34354A;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #26262F transparent;
+}
+
 body {
   font-family: var(--font);
   background: var(--bg);
@@ -66,6 +86,26 @@ body {
   color: var(--text-2);
   letter-spacing: .2px;
 }
+.header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.boost-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--green);
+  text-decoration: none;
+  letter-spacing: .1px;
+  transition: opacity .15s;
+}
+.boost-link:hover { opacity: .75; }
+
 .last-updated {
   font-size: 11px;
   color: var(--text-3);
@@ -220,12 +260,14 @@ body { position: relative; overflow-x: hidden; }
 .detail-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 12px 18px;
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   background: var(--bg);
   z-index: 1;
+  position: relative; /* for absolute-centered title */
 }
 
 .back-btn {
@@ -309,31 +351,183 @@ body { position: relative; overflow-x: hidden; }
   margin-bottom: 14px;
 }
 
-.detail-tips { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-.detail-tips li {
+/* ── Activity checkboxes ─────────────────────────────────────────────────── */
+.detail-activities {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 16px;
 }
-.detail-tips li .tip-num {
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s;
+  user-select: none;
+}
+.activity-item:hover { background: var(--surface-2); }
+
+.activity-item input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--green-dim);
-  color: var(--green);
-  font-size: 11px;
+  cursor: pointer;
+  position: relative;
+  transition: background .15s, border-color .15s;
+}
+.activity-item input[type="checkbox"]:checked {
+  background: var(--green);
+  border-color: var(--green);
+}
+.activity-item input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1.5px;
+  width: 5px;
+  height: 9px;
+  border: 2px solid #0C0C10;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+.activity-label {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.4;
+  transition: color .15s;
+}
+.activity-item input:checked ~ .activity-label { color: var(--text); }
+
+/* ── Save button ─────────────────────────────────────────────────────────── */
+.save-activity-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 11px;
+  background: var(--green);
+  color: #08110e;
+  font-size: 13px;
   font-weight: 700;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  transition: opacity .15s, transform .1s;
+}
+.save-activity-btn:hover  { opacity: .88; }
+.save-activity-btn:active { transform: scale(.97); }
+
+.save-confirm {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 1px;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--green);
 }
-.detail-tips li .tip-text {
+.save-confirm.hidden { display: none; }
+
+/* ── Activity detail screen (inside history-screen, slides from right) ────── */
+.act-detail-screen {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  transform: translateX(100%);
+  transition: transform .32s cubic-bezier(.4,0,.2,1);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.act-detail-screen.open { transform: translateX(0); }
+
+.act-detail-date-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
   font-size: 13px;
-  line-height: 1.5;
+  font-weight: 600;
   color: var(--text-2);
+  white-space: nowrap;
 }
+
+.act-detail-body {
+  padding: 20px 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.act-group-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .55px;
+  color: var(--green);
+  margin-bottom: 8px;
+}
+
+.act-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.act-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-radius: 8px;
+}
+
+.act-item-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.act-item-check.done   { background: var(--green); }
+.act-item-check.undone { background: var(--surface-2); border: 1.5px solid var(--border); }
+.act-item-check.done svg { display: block; }
+
+.act-item-text {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+
+/* act badge in history table */
+.act-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: var(--green-dim);
+  color: var(--green);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.act-badge:hover { background: rgba(52,211,153,.25); }
 
 /* ── Benchmarks ─────────────────────────────────────────────────────────── */
 .benchmarks {
@@ -492,6 +686,7 @@ button:disabled { opacity: .4; pointer-events: none; }
   z-index: 200;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* needed so child act-detail-screen clips correctly */
 }
 .history-screen.open { transform: translateY(0); }
 
@@ -532,8 +727,6 @@ button:disabled { opacity: .4; pointer-events: none; }
 .history-screen-body {
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .history-table { width: 100%; border-collapse: collapse; font-size: 12px; }

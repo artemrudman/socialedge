@@ -23,7 +23,18 @@
         <span class="brand-sub">LinkedIn Selling Score</span>
       </div>
     </div>
-    <span class="last-updated" id="last-updated">—</span>
+    <div class="header-right">
+      <a class="boost-link" href="Info Plan.pdf" download="SocialEdge_Boost_Strategy.pdf">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M6 1v7M6 8l-2.5-2.5M6 8l2.5-2.5" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M1.5 10.5h9" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Free Boost Strategy
+      </a>
+      <span class="last-updated" id="last-updated">—</span>
+    </div>
   </header>
 
   <!-- ── Hero score ────────────────────────────────────────────── -->
@@ -115,10 +126,20 @@
         <div class="detail-bar-fill" id="detail-bar"></div>
       </div>
 
-      <div class="detail-section-title">How to improve</div>
-      <ul class="detail-tips" id="detail-tips"></ul>
+      <div class="detail-section-title">Today's Activities</div>
+      <div class="detail-activities" id="detail-activities"></div>
+
+      <button class="save-activity-btn" id="save-activity-btn">Save Activities</button>
+      <div class="save-confirm hidden" id="save-confirm">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="#34D399" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Saved for today
+      </div>
     </div>
   </div>
+
 
   <!-- ── Benchmarks ────────────────────────────────────────────── -->
   <section class="benchmarks">
@@ -159,7 +180,7 @@
       </svg>
       Refresh Score
     </button>
-    <button id="btn-export" class="btn-ghost">Export JSON</button>
+    <button id="btn-export-main" class="btn-ghost">Export JSON</button>
   </section>
 
   <div id="status-bar" class="status-bar hidden"></div>
@@ -194,18 +215,33 @@
         Back
       </button>
       <span class="history-screen-title">Score History</span>
-      <button id="btn-export" class="export-btn">Export</button>
+      <button id="btn-export-history" class="export-btn">Export</button>
     </header>
+
+    <!-- Activity detail — slides in from right OVER the history screen -->
+    <div class="act-detail-screen" id="act-detail-screen">
+      <header class="detail-header">
+        <button class="back-btn" id="act-detail-back">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Back
+        </button>
+        <span class="act-detail-date-label" id="act-detail-date"></span>
+      </header>
+      <div class="act-detail-body" id="act-detail-body"></div>
+    </div>
 
     <div class="history-screen-body">
       <table class="history-table">
         <thead>
           <tr>
-            <th>Date</th><th>Score</th><th>PB</th><th>FRP</th><th>IE</th><th>RS</th>
+            <th>Date</th><th>Score</th><th>PB</th><th>FRP</th><th>IE</th><th>RS</th><th>Act.</th>
           </tr>
         </thead>
         <tbody id="history-body">
-          <tr><td colspan="6" class="empty-cell">No data yet</td></tr>
+          <tr><td colspan="7" class="empty-cell">No data yet</td></tr>
         </tbody>
       </table>
     </div>

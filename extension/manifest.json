@@ -36,6 +36,13 @@
     "128": "icons/icon.svg"
   },
 
+  "web_accessible_resources": [
+    {
+      "resources": ["Info Plan.pdf"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
   "content_scripts": [
     {
       "matches": ["*://*.linkedin.com/*"],
