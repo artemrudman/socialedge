@@ -22,7 +22,11 @@
   },
 
   "action": {
-    "default_icon": "icons/icon.svg",
+    "default_icon": {
+      "16":  "icons/icon16.png",
+      "48":  "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
     "default_title": "SocialEdge — Your Selling Score"
   },
 
@@ -31,9 +35,9 @@
   },
 
   "icons": {
-    "16":  "icons/icon.svg",
-    "48":  "icons/icon.svg",
-    "128": "icons/icon.svg"
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
 
   "web_accessible_resources": [
