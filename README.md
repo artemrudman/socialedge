@@ -4,6 +4,7 @@
 
 SocialEdge is a Chrome extension built for LinkedIn Sales Navigator users who want full visibility into their SSI score, daily progress, and concrete actions to improve it. No spreadsheets, no copying cookies, no manual API calls — just open LinkedIn and your score is captured silently in the background.
 <img src="artemrudman/screenshots/SE_gif.gif" width="200">
+![diagram](https://raw.githubusercontent.com/artemrudman/screenshots/SE_gif.gif)
 
 ---
 
