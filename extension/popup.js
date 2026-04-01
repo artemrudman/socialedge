@@ -96,6 +96,15 @@ function trend(cur, prev) {
   return { dir: d > 0 ? 'up' : 'down', label: `${d > 0 ? '+' : ''}${d.toFixed(1)}` };
 }
 
+// For Top-N% rankings: lower percentage = better position
+function trendPct(cur, prev) {
+  if (cur == null || prev == null) return null;
+  const d = cur - prev;
+  if (Math.abs(d) < 0.5) return null;
+  // d < 0 means rank improved (e.g. Top 10% → Top 8%)
+  return { dir: d < 0 ? 'up' : 'down', label: `${Math.abs(Math.round(d))}%` };
+}
+
 function animateNum(el, to, dec = 1, duration = 700) {
   const from  = parseFloat(el.textContent) || 0;
   const start = performance.now();
@@ -185,10 +194,23 @@ function render(current, previous) {
   const indEl = $('bench-ind-top');
   indEl.textContent = ind.top != null ? `Top ${ind.top}%` : '—';
   indEl.className   = 'bench-rank ' + rankClass(ind.top);
+  const indTrend = trendPct(ind.top, prev?.industry?.top);
+  const indTrendEl = $('bench-ind-trend');
+  if (indTrend && indTrend.dir !== 'flat') {
+    indTrendEl.textContent = (indTrend.dir === 'up' ? '↑ ' : '↓ ') + indTrend.label;
+    indTrendEl.className   = 'bench-trend ' + indTrend.dir;
+  } else { indTrendEl.textContent = ''; indTrendEl.className = 'bench-trend'; }
+
   $('bench-net-ssi').textContent  = net.ssi  != null ? fmt(net.ssi)  + ' SSI' : '—';
   const netEl = $('bench-net-top');
   netEl.textContent = net.top != null ? `Top ${net.top}%` : '—';
   netEl.className   = 'bench-rank ' + rankClass(net.top);
+  const netTrend = trendPct(net.top, prev?.network?.top);
+  const netTrendEl = $('bench-net-trend');
+  if (netTrend && netTrend.dir !== 'flat') {
+    netTrendEl.textContent = (netTrend.dir === 'up' ? '↑ ' : '↓ ') + netTrend.label;
+    netTrendEl.className   = 'bench-trend ' + netTrend.dir;
+  } else { netTrendEl.textContent = ''; netTrendEl.className = 'bench-trend'; }
 }
 
 // ── Render history table ─────────────────────────────────────────────────────────
@@ -445,3 +467,8 @@ function doExport() {
 
 $('btn-export-main').addEventListener('click', doExport);
 $('btn-export-history').addEventListener('click', doExport);
+
+// ── Support / About screen ────────────────────────────────────────────────────
+const supportScreen = $('support-screen');
+$('brand-btn').addEventListener('click', () => supportScreen.classList.add('open'));
+$('support-back-btn').addEventListener('click', () => supportScreen.classList.remove('open'));
