@@ -421,10 +421,18 @@ body { position: relative; overflow-x: hidden; }
   border-radius: 9px;
   border: none;
   cursor: pointer;
-  transition: opacity .15s, transform .1s;
+  transition: opacity .15s, transform .1s, box-shadow .3s;
 }
 .save-activity-btn:hover  { opacity: .88; }
 .save-activity-btn:active { transform: scale(.97); }
+.save-activity-btn.saved-pulse {
+  animation: btn-pulse .5s ease-out;
+}
+@keyframes btn-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(52,211,153,.6); }
+  60%  { box-shadow: 0 0 0 10px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0   rgba(52,211,153,0); }
+}
 
 .save-confirm {
   display: flex;
@@ -437,6 +445,28 @@ body { position: relative; overflow-x: hidden; }
   color: var(--green);
 }
 .save-confirm.hidden { display: none; }
+.save-confirm.pop-in {
+  animation: confirm-pop .4s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes confirm-pop {
+  from { opacity: 0; transform: scale(.6) translateY(4px); }
+  to   { opacity: 1; transform: scale(1)  translateY(0);   }
+}
+
+/* ── Save particle burst ─────────────────────────────────────────────────── */
+.save-particle {
+  position: fixed;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  animation: particle-fly var(--dur) ease-out forwards;
+}
+@keyframes particle-fly {
+  0%   { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0); }
+}
 
 /* ── Activity detail screen (inside history-screen, slides from right) ────── */
 .act-detail-screen {
