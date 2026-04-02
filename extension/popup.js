@@ -269,6 +269,7 @@ function render(current, previous) {
 
 // ── Render history table ─────────────────────────────────────────────────────────
 function renderHistory(history) {
+  initChart(history);
   const tbody = $("history-body");
   $("history-count").textContent = `${Math.min(history.length, 30)} days`;
   // $('history-count').textContent = `open`;
@@ -591,12 +592,308 @@ $("btn-refresh").addEventListener("click", () => {
   });
 });
 
+// ── Score Chart ───────────────────────────────────────────────────────────────
+const OVERALL_COLOR  = '#E8E8F0';
+let chartData        = [];   // oldest → newest
+let forecastPtsPro   = [];   // [{ dayOffset, value, label }]
+// hoverIdx: 0..n-1 = real; n..n+2 = pro forecast
+let hoverIdx         = -1;
+
+// ── Forecast computation ──────────────────────────────────────────────────────
+function computeForecast(data) {
+  if (!data.length) return [];
+  const base    = new Date(data[0].date);
+  const toDay   = (d) => Math.round((new Date(d) - base) / 86400000);
+  const lastDay = toDay(data[data.length - 1].date);
+  const lastVal = data[data.length - 1].parsed?.overall ?? 0;
+
+  // Pro: personal target 60–65 (deterministic per user)
+  const seed          = data.reduce((a, e) => a + (e.parsed?.overall ?? 0), 0);
+  const pseudo        = ((seed * 9301 + 49297) % 233280) / 233280;
+  const personalTarget = 60 + pseudo * 5;
+  const proTarget = lastVal < personalTarget
+    ? personalTarget
+    : Math.min(100, lastVal + (100 - lastVal) * 0.18);
+  return [30, 60, 90].map((d) => ({
+    dayOffset : lastDay + d,
+    value     : lastVal + (proTarget - lastVal) * (d / 90),
+    label     : `+${d}d`,
+  }));
+}
+
+// ── Static legend ─────────────────────────────────────────────────────────────
+(function buildLegend() {
+  $('chart-legend').innerHTML = `
+    <span class="legend-item">
+      <span class="legend-line-solid"></span>Overall Score
+    </span>
+      <span class="legend-pro-badge">🔒 Pro</span>
+    </span>`;
+})();
+
+// ── Draw ──────────────────────────────────────────────────────────────────────
+function drawChart() {
+  const canvas = $('score-chart');
+  if (!canvas || !chartData.length) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth;
+  const H   = canvas.offsetHeight;
+  if (!W || !H) return;
+
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const pad = { top: 14, right: 14, bottom: 8, left: 32 };
+  const cw  = W - pad.left - pad.right;
+  const ch  = H - pad.top  - pad.bottom;
+
+  // Date → pixel x (using real calendar days so forecast spacing is proportional)
+  const base    = new Date(chartData[0].date);
+  const toDay   = (d) => Math.round((new Date(d) - base) / 86400000);
+  const realDays = chartData.map((e) => toDay(e.date));
+  const allFcPts = [...forecastPtsPro];
+  const maxDay   = allFcPts.length
+    ? allFcPts[allFcPts.length - 1].dayOffset
+    : realDays[realDays.length - 1];
+  const xOf = (day) => pad.left + (maxDay ? (day / maxDay) * cw : cw / 2);
+  const yOf = (v)   => pad.top  + (1 - v / 100) * ch;
+
+  // ── Grid ────────────────────────────────────────────────────────────────
+  ctx.font      = '9px -apple-system,sans-serif';
+  ctx.textAlign = 'right';
+  [0, 25, 50, 75, 100].forEach((v) => {
+    const y = yOf(v);
+    ctx.strokeStyle = '#1A1A24'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#42425A';
+    ctx.fillText(v, pad.left - 5, y + 3.5);
+  });
+
+  // ── Forecast region tint ─────────────────────────────────────────────────
+  if (forecastPtsPro.length) {
+    const fx    = xOf(realDays[realDays.length - 1]);
+    const fGrad = ctx.createLinearGradient(fx, 0, W - pad.right, 0);
+    fGrad.addColorStop(0, 'rgba(96,165,250,.05)');
+    fGrad.addColorStop(1, 'rgba(96,165,250,.11)');
+    ctx.fillStyle = fGrad;
+    ctx.fillRect(fx, pad.top, W - pad.right - fx, ch);
+
+    // divider at junction
+    ctx.strokeStyle = 'rgba(96,165,250,.18)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(fx, pad.top); ctx.lineTo(fx, pad.top + ch); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // X-axis labels intentionally omitted
+
+  // ── Area fill under real line ────────────────────────────────────────────
+  {
+    const scores = chartData.map((e) => e.parsed?.overall ?? null);
+    const grad   = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
+    grad.addColorStop(0, 'rgba(232,232,240,.12)');
+    grad.addColorStop(1, 'rgba(232,232,240,.00)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    let fI = -1; let lI = -1; let started = false;
+    scores.forEach((v, i) => {
+      if (v == null) return;
+      const x = xOf(realDays[i]); const y = yOf(v);
+      if (!started) { ctx.moveTo(x, y); started = true; fI = i; }
+      else {
+        const pp = scores[i - 1] ?? v;
+        const cpx = (xOf(realDays[i - 1]) + x) / 2;
+        ctx.bezierCurveTo(cpx, yOf(pp), cpx, y, x, y);
+      }
+      lI = i;
+    });
+    if (lI >= 0) {
+      ctx.lineTo(xOf(realDays[lI]), H - pad.bottom);
+      ctx.lineTo(xOf(realDays[fI]), H - pad.bottom);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+
+  // ── Real overall line ────────────────────────────────────────────────────
+  {
+    const scores = chartData.map((e) => e.parsed?.overall ?? null);
+    ctx.strokeStyle = OVERALL_COLOR; ctx.lineWidth = 2.4;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    let started = false;
+    scores.forEach((v, i) => {
+      if (v == null) { started = false; return; }
+      const x = xOf(realDays[i]); const y = yOf(v);
+      if (!started) { ctx.moveTo(x, y); started = true; return; }
+      const pp = scores[i - 1] ?? v;
+      const cpx = (xOf(realDays[i - 1]) + x) / 2;
+      ctx.bezierCurveTo(cpx, yOf(pp), cpx, y, x, y);
+    });
+    ctx.stroke();
+
+    // Dots
+    scores.forEach((v, i) => {
+      if (v == null) return;
+      const isHov = hoverIdx === i;
+      ctx.beginPath();
+      ctx.arc(xOf(realDays[i]), yOf(v), isHov ? 4.5 : 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = isHov ? OVERALL_COLOR : OVERALL_COLOR + '99';
+      ctx.fill();
+      if (isHov) { ctx.strokeStyle = '#0C0C10'; ctx.lineWidth = 1.5; ctx.stroke(); }
+    });
+  }
+
+  // ── Helper: draw one dashed forecast line + hollow dots ─────────────────
+  function drawForecastLine(pts, color, dashPat, idxOffset) {
+    const lastReal = chartData[chartData.length - 1].parsed?.overall;
+    if (!pts.length || lastReal == null) return;
+    const x0 = xOf(realDays[realDays.length - 1]);
+    const x1 = xOf(pts[pts.length - 1].dayOffset);
+    const grad = ctx.createLinearGradient(x0, 0, x1, 0);
+    grad.addColorStop(0,   `${color}88`);
+    grad.addColorStop(1,   `${color}44`);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth   = 1.8;
+    ctx.setLineDash(dashPat);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, yOf(lastReal));
+    pts.forEach((fp) => ctx.lineTo(xOf(fp.dayOffset), yOf(fp.value)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    pts.forEach((fp, fi) => {
+      const isHov = hoverIdx === idxOffset + fi;
+      const fx = xOf(fp.dayOffset); const fy = yOf(fp.value);
+      ctx.beginPath();
+      ctx.arc(fx, fy, isHov ? 5 : 3.2, 0, Math.PI * 2);
+      ctx.fillStyle   = isHov ? color + '28' : '#111118';
+      ctx.strokeStyle = isHov ? color : color + '88';
+      ctx.lineWidth   = isHov ? 2 : 1.5;
+      ctx.fill(); ctx.stroke();
+    });
+  }
+
+  const n = chartData.length;
+  // Pro forecast: green dashes
+  drawForecastLine(forecastPtsPro, '#34D399', [7, 4], n);
+
+  // ── Crosshair + tooltip ───────────────────────────────────────────────────
+  const allPts = [
+    ...realDays.map((day, i)       => ({ i,      x: xOf(day),             isPro: false })),
+    ...forecastPtsPro.map((fp, fi) => ({ i: n+fi, x: xOf(fp.dayOffset),   isPro: true, fp })),
+  ];
+  const hov = allPts.find((p) => p.i === hoverIdx);
+
+  if (hov) {
+    ctx.strokeStyle = '#46465A'; ctx.lineWidth = 1;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(hov.x, pad.top); ctx.lineTo(hov.x, H - pad.bottom); ctx.stroke();
+    ctx.setLineDash([]);
+
+    const tooltip = $('chart-tooltip');
+
+    function topEstRows(fp, exponent) {
+      const lastEntry  = chartData[chartData.length - 1];
+      const lastScore  = lastEntry.parsed?.overall ?? 0;
+      const lastIndTop = lastEntry.parsed?.industry?.top;
+      const lastNetTop = lastEntry.parsed?.network?.top;
+      const ratio      = lastScore > 0 ? lastScore / fp.value : 1;
+      const eInd = lastIndTop != null ? Math.max(1, Math.round(lastIndTop * Math.pow(ratio, exponent))) : null;
+      const eNet = lastNetTop != null ? Math.max(1, Math.round(lastNetTop * Math.pow(ratio, exponent))) : null;
+      return [
+        eInd != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Industry</span><span class="ct-val">~Top ${eInd}%</span></div>` : '',
+        eNet != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Network</span><span class="ct-val">~Top ${eNet}%</span></div>` : '',
+      ].join('');
+    }
+
+    if (hov.isPro) {
+      const rows = topEstRows(hov.fp, 3.2);
+      tooltip.innerHTML = `
+        <div class="ct-date">Pro Forecast ${hov.fp.label}</div>
+        <div class="ct-row">
+          <span class="ct-dot" style="background:#34D399"></span>
+          <span class="ct-label">Projected SSI</span>
+          <span class="ct-val">~${hov.fp.value.toFixed(1)}<span style="color:var(--text-3);font-weight:400">/100</span></span>
+        </div>
+        ${rows ? `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">${rows}</div>` : ''}
+        <div class="ct-note">With consistent daily activity<br>from the Advanced Plan</div>`;
+    } else {
+      const e = chartData[hov.i];
+      const indTop = e.parsed?.industry?.top;
+      const netTop = e.parsed?.network?.top;
+      const topRows = [
+        indTop != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Industry</span><span class="ct-val">Top ${indTop}%</span></div>` : '',
+        netTop != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Network</span><span class="ct-val">Top ${netTop}%</span></div>` : '',
+      ].join('');
+      tooltip.innerHTML = `
+        <div class="ct-date">${e.date}</div>
+        <div class="ct-row">
+          <span class="ct-dot" style="background:${OVERALL_COLOR}"></span>
+          <span class="ct-label">Overall SSI</span>
+          <span class="ct-val">${(e.parsed?.overall ?? 0).toFixed(1)}<span style="color:var(--text-3);font-weight:400">/100</span></span>
+        </div>
+        ${topRows ? `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">${topRows}</div>` : ''}`;
+    }
+    tooltip.classList.remove('hidden');
+    const tipW = tooltip.offsetWidth || 160;
+    tooltip.style.left = `${hov.x + 12 + tipW > W ? hov.x - tipW - 12 : hov.x + 12}px`;
+    tooltip.style.top  = `${pad.top}px`;
+  } else {
+    $('chart-tooltip').classList.add('hidden');
+  }
+}
+
+function initChart(history) {
+  chartData      = history.slice(0, 30).slice().reverse();
+  forecastPtsPro = computeForecast(chartData);
+  drawChart();
+}
+
+// Mouse interaction
+(function bindChartEvents() {
+  const canvas = $('score-chart');
+
+  function nearestIdx(mouseX) {
+    if (!chartData.length) return -1;
+    const base     = new Date(chartData[0].date);
+    const toDay    = (d) => Math.round((new Date(d) - base) / 86400000);
+    const realDays = chartData.map((e) => toDay(e.date));
+    const maxDay   = forecastPtsPro.length ? forecastPtsPro[forecastPtsPro.length - 1].dayOffset : realDays[realDays.length - 1];
+    const padL = 32; const padR = 14;
+    const cw   = canvas.offsetWidth - padL - padR;
+    const xOf  = (day) => padL + (maxDay ? (day / maxDay) * cw : cw / 2);
+    const n    = chartData.length;
+
+    const all = [
+      ...realDays.map((day, i)       => ({ i,      x: xOf(day) })),
+      ...forecastPtsPro.map((fp, fi) => ({ i: n+fi, x: xOf(fp.dayOffset) })),
+    ];
+    let best = -1; let bestD = Infinity;
+    all.forEach(({ i, x }) => { const d = Math.abs(x - mouseX); if (d < bestD) { bestD = d; best = i; } });
+    return bestD < 28 ? best : -1;
+  }
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    hoverIdx   = nearestIdx(e.clientX - rect.left);
+    drawChart();
+  });
+  canvas.addEventListener('mouseleave', () => { hoverIdx = -1; drawChart(); });
+})();
+
 // ── History screen ────────────────────────────────────────────────────────────────
 const historyScreen = $("history-screen");
 
-$("btn-history").addEventListener("click", () =>
-  historyScreen.classList.add("open"),
-);
+$("btn-history").addEventListener("click", () => {
+  historyScreen.classList.add("open");
+  // Canvas was hidden (zero size) before open — redraw now that it has dimensions
+  requestAnimationFrame(() => requestAnimationFrame(drawChart));
+});
 $("history-back-btn").addEventListener("click", () =>
   historyScreen.classList.remove("open"),
 );
