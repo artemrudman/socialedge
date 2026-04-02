@@ -23,27 +23,34 @@
   --font:   -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;
 }
 
+/* ── Light (day) theme ──────────────────────────────────────────────────── */
+html.day {
+  --bg:        #F5F6FA;
+  --surface:   #FFFFFF;
+  --surface-2: #EEF0F6;
+  --border:    #DDE0EC;
+  --text:      #111827;
+  --text-2:    #4B5675;
+  --text-3:    #9CA3BF;
+
+  --green:     #059669;
+  --green-dim: rgba(5,150,105,.10);
+  --blue:      #2563EB;
+  --blue-dim:  rgba(37,99,235,.10);
+  --amber:     #D97706;
+  --amber-dim: rgba(217,119,6,.10);
+  --red:       #DC2626;
+  --red-dim:   rgba(220,38,38,.10);
+}
+
 html { font-size: 13px; }
 
 /* ── Global scrollbar ───────────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #26262F;
-  border-radius: 99px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #34354A;
-}
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #26262F transparent;
-}
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 
 body {
   font-family: var(--font);
@@ -110,6 +117,49 @@ body {
   font-size: 11px;
   color: var(--text-3);
 }
+
+/* ── Support theme row ──────────────────────────────────────────────────── */
+.support-theme-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 4px;
+}
+.support-theme-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.support-theme-hint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ── Day / Night toggle ─────────────────────────────────────────────────── */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background .2s, color .2s, border-color .2s, transform .1s;
+  padding: 0;
+  margin-top: 2px;
+}
+.theme-toggle:hover  { background: var(--surface-2); color: var(--text); }
+.theme-toggle:active { transform: scale(.92); }
+
+/* Show moon in dark mode, sun in light mode */
+.icon-sun  { display: none; }
+.icon-moon { display: block; }
+html.day .icon-sun  { display: block; }
+html.day .icon-moon { display: none; }
 
 /* ── Hero ───────────────────────────────────────────────────────────────── */
 .hero {

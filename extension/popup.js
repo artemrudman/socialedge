@@ -916,6 +916,27 @@ function doExport() {
 $("btn-export-main").addEventListener("click", doExport);
 $("btn-export-history").addEventListener("click", doExport);
 
+// ── Day / Night theme ─────────────────────────────────────────────────────────
+function setThemeHint(isDay) {
+  const el = $('theme-hint');
+  if (el) el.textContent = isDay ? 'Day mode' : 'Night mode';
+}
+
+(function initTheme() {
+  chrome.storage.local.get(['theme'], ({ theme }) => {
+    const isDay = theme === 'day';
+    if (isDay) document.documentElement.classList.add('day');
+    setThemeHint(isDay);
+  });
+})();
+
+$('theme-toggle').addEventListener('click', () => {
+  const isDay = document.documentElement.classList.toggle('day');
+  chrome.storage.local.set({ theme: isDay ? 'day' : 'night' });
+  setThemeHint(isDay);
+  requestAnimationFrame(drawChart);
+});
+
 // ── Support / About screen ────────────────────────────────────────────────────
 const supportScreen = $("support-screen");
 $("brand-btn").addEventListener("click", () =>
