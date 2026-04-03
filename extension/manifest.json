@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SocialEdge",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Track and grow your LinkedIn Social Selling Score — automatically, every day.",
 
   "permissions": [

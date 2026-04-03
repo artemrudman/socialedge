@@ -988,6 +988,71 @@ button:disabled { opacity: .4; pointer-events: none; }
   margin-top: 4px;
 }
 
+/* ── Analytics Chart ──────────────────────────────────────────────────────── */
+.analytics-chart-section {
+  margin-bottom: 14px;
+}
+.analytics-chart-section.hidden { display: none; }
+
+.analytics-chart-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.analytics-chart-tab {
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.analytics-chart-tab:hover { border-color: var(--text-3); color: var(--text-2); }
+.analytics-chart-tab.active {
+  border-color: var(--metric-color, var(--green));
+  background: color-mix(in srgb, var(--metric-color, var(--green)) 12%, transparent);
+  color: var(--metric-color, var(--green));
+}
+
+.analytics-chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+#analytics-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.analytics-chart-tooltip {
+  position: absolute;
+  top: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  pointer-events: none;
+  min-width: 120px;
+  z-index: 10;
+  transition: opacity .1s;
+}
+.analytics-chart-tooltip.hidden { opacity: 0; pointer-events: none; }
+.analytics-chart-tooltip .ct-date { font-size: 10px; color: var(--text-3); font-weight: 600; margin-bottom: 3px; }
+.analytics-chart-tooltip .ct-val { font-size: 12px; font-weight: 700; color: var(--text); }
+
 /* ── Score Chart ─────────────────────────────────────────────────────────── */
 .chart-section {
   flex-shrink: 0;

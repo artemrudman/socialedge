@@ -431,6 +431,29 @@ async function replayAnalytics() {
 
   if (anyStored) {
     await chrome.storage.local.set({ [ANALYTICS_KEY]: current });
+
+    // ── Save a history snapshot for the analytics chart ────────────────────
+    const HISTORY_KEY = 'liAnalyticsHistory';
+    const histStored = await chrome.storage.local.get([HISTORY_KEY]);
+    const history = histStored[HISTORY_KEY] || [];
+    const snapshot = {
+      ts: now,
+      followers:         result.followers         ?? null,
+      connections:       result.connections        ?? null,
+      profileViews:      result.profileViews       ?? null,
+      searchAppearances: result.searchAppearances  ?? null,
+      impressions:       result.postImpressions    ?? null,
+      engagements:       result.engagements        ?? null,
+    };
+    // Avoid duplicate snapshots within 1 hour
+    const last = history[history.length - 1];
+    if (!last || (now - last.ts) > 3600000) {
+      history.push(snapshot);
+      // Keep max 90 snapshots
+      if (history.length > 90) history.splice(0, history.length - 90);
+      await chrome.storage.local.set({ [HISTORY_KEY]: history });
+    }
+
     const summary = [
       result.connections != null       ? `${result.connections} conn` : null,
       result.followers != null         ? `${result.followers} followers` : null,

@@ -1124,20 +1124,286 @@ function renderAnalytics(data) {
   //   <div class="analytics-updated">Updated ${timeAgo(latestTs)}</div>`;
 }
 
+// ── Analytics Chart ──────────────────────────────────────────────────────────
+const ANALYTICS_METRICS = [
+  { key: 'followers',    label: 'Followers',           color: '#34D399', src: 'network',   field: 'followers' },
+  // { key: 'connections',  label: 'Connections',         color: '#FBBF24', src: 'network',   field: 'connections' },
+  { key: 'profileViews', label: 'Profile Views',      color: '#60A5FA', src: 'dashboard',  field: 'profileViews' },
+  { key: 'searchAppearances', label: 'Search Appearances', color: '#A78BFA', src: 'dashboard', field: 'searchAppearances' },
+  { key: 'impressions', label: 'Impressions',          color: '#F87171', src: 'content',   field: 'impressions' },
+  { key: 'engagements', label: 'Engagements',          color: '#F472B6', src: 'content',   field: 'engagements' },
+];
+let analyticsActiveMetric = 'followers';
+let analyticsHoverIdx = -1;
+
+function getAnalyticsHistory() {
+  // Pull from liAnalyticsHistory: array of timestamped snapshots
+  return new Promise(resolve => {
+    chrome.storage.local.get(['liAnalyticsHistory'], r => resolve(r.liAnalyticsHistory || []));
+  });
+}
+
+function buildAnalyticsChartTabs(history) {
+  const tabsEl = $('analytics-chart-tabs');
+  // Only show tabs for metrics that have at least one data point in history
+  const available = ANALYTICS_METRICS.filter(m =>
+    history.some(snap => snap[m.key] != null)
+  );
+  if (!available.length) {
+    $('analytics-chart-section').classList.add('hidden');
+    return;
+  }
+  $('analytics-chart-section').classList.remove('hidden');
+
+  // If active metric has no data, switch to first available
+  if (!available.find(m => m.key === analyticsActiveMetric)) {
+    analyticsActiveMetric = available[0].key;
+  }
+
+  tabsEl.innerHTML = available.map(m =>
+    `<button class="analytics-chart-tab${m.key === analyticsActiveMetric ? ' active' : ''}"
+             data-metric="${m.key}"
+             style="--metric-color:${m.color}">${m.label}</button>`
+  ).join('');
+
+  tabsEl.querySelectorAll('.analytics-chart-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      analyticsActiveMetric = btn.dataset.metric;
+      analyticsHoverIdx = -1;
+      tabsEl.querySelectorAll('.analytics-chart-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      drawAnalyticsChart(history);
+    });
+  });
+}
+
+function drawAnalyticsChart(history) {
+  const canvas = $('analytics-chart');
+  if (!canvas || !history.length) return;
+
+  const metric = ANALYTICS_METRICS.find(m => m.key === analyticsActiveMetric);
+  if (!metric) return;
+
+  // Build data points: { ts, value } sorted by time
+  const pts = history
+    .map(snap => ({ ts: snap.ts, value: snap[metric.key] }))
+    .filter(p => p.value != null)
+    .sort((a, b) => a.ts - b.ts);
+
+  if (!pts.length) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  if (!W || !H) return;
+
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const pad = { top: 16, right: 14, bottom: 22, left: 40 };
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top - pad.bottom;
+
+  // Value range
+  const vals = pts.map(p => p.value);
+  let vMin = Math.min(...vals);
+  let vMax = Math.max(...vals);
+  const margin = Math.max(1, (vMax - vMin) * 0.15);
+  vMin = Math.max(0, vMin - margin);
+  vMax = vMax + margin;
+  if (vMax === vMin) vMax = vMin + 10;
+
+  // Time range
+  const tMin = pts[0].ts;
+  const tMax = pts[pts.length - 1].ts;
+  const tSpan = Math.max(1, tMax - tMin);
+
+  const xOf = (t) => pad.left + ((t - tMin) / tSpan) * cw;
+  const yOf = (v) => pad.top + (1 - (v - vMin) / (vMax - vMin)) * ch;
+
+  // Grid lines
+  const isDay = document.documentElement.classList.contains('day');
+  const gridColor = isDay ? '#E5E7EB' : '#1A1A24';
+  const labelColor = isDay ? '#9CA3BF' : '#42425A';
+  const gridSteps = 4;
+  ctx.font = '9px -apple-system,sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= gridSteps; i++) {
+    const v = vMin + (vMax - vMin) * (i / gridSteps);
+    const y = yOf(v);
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+    ctx.fillStyle = labelColor;
+    ctx.fillText(fmtNum(Math.round(v)), pad.left - 5, y + 3.5);
+  }
+
+  // X-axis dates
+  ctx.textAlign = 'center';
+  ctx.fillStyle = labelColor;
+  const xLabels = pts.length <= 6 ? pts : [pts[0], pts[Math.floor(pts.length / 2)], pts[pts.length - 1]];
+  xLabels.forEach(p => {
+    const d = new Date(p.ts);
+    const label = `${d.getMonth() + 1}/${d.getDate()}`;
+    ctx.fillText(label, xOf(p.ts), H - pad.bottom + 12);
+  });
+
+  // Area fill
+  const grad = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
+  grad.addColorStop(0, metric.color + '20');
+  grad.addColorStop(1, metric.color + '00');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const x = xOf(p.ts), y = yOf(p.value);
+    if (i === 0) ctx.moveTo(x, y);
+    else {
+      const pp = pts[i - 1];
+      const cpx = (xOf(pp.ts) + x) / 2;
+      ctx.bezierCurveTo(cpx, yOf(pp.value), cpx, y, x, y);
+    }
+  });
+  ctx.lineTo(xOf(pts[pts.length - 1].ts), H - pad.bottom);
+  ctx.lineTo(xOf(pts[0].ts), H - pad.bottom);
+  ctx.closePath();
+  ctx.fill();
+
+  // Line
+  ctx.strokeStyle = metric.color;
+  ctx.lineWidth = 2.2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const x = xOf(p.ts), y = yOf(p.value);
+    if (i === 0) { ctx.moveTo(x, y); return; }
+    const pp = pts[i - 1];
+    const cpx = (xOf(pp.ts) + x) / 2;
+    ctx.bezierCurveTo(cpx, yOf(pp.value), cpx, y, x, y);
+  });
+  ctx.stroke();
+
+  // Dots
+  pts.forEach((p, i) => {
+    const isHov = analyticsHoverIdx === i;
+    ctx.beginPath();
+    ctx.arc(xOf(p.ts), yOf(p.value), isHov ? 4.5 : 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = isHov ? metric.color : metric.color + '99';
+    ctx.fill();
+    if (isHov) {
+      ctx.strokeStyle = isDay ? '#FFFFFF' : '#0C0C10';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  });
+
+  // Crosshair + tooltip
+  if (analyticsHoverIdx >= 0 && analyticsHoverIdx < pts.length) {
+    const hov = pts[analyticsHoverIdx];
+    const hx = xOf(hov.ts);
+    ctx.strokeStyle = isDay ? '#CBD5E1' : '#46465A';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(hx, pad.top);
+    ctx.lineTo(hx, H - pad.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const tooltip = $('analytics-chart-tooltip');
+    const d = new Date(hov.ts);
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    tooltip.innerHTML = `
+      <div class="ct-date">${dateStr}</div>
+      <div class="ct-val" style="color:${metric.color}">${fmtNum(hov.value)} <span style="color:var(--text-3);font-weight:400;font-size:10px">${metric.label}</span></div>`;
+    tooltip.classList.remove('hidden');
+    const tipW = tooltip.offsetWidth || 130;
+    tooltip.style.left = `${hx + 12 + tipW > W ? hx - tipW - 12 : hx + 12}px`;
+    tooltip.style.top = `${pad.top}px`;
+  } else {
+    $('analytics-chart-tooltip').classList.add('hidden');
+  }
+}
+
+// Analytics chart mouse interaction
+(function bindAnalyticsChartEvents() {
+  const canvas = $('analytics-chart');
+  let currentHistory = [];
+
+  function nearestIdx(mouseX) {
+    if (!currentHistory.length) return -1;
+    const metric = ANALYTICS_METRICS.find(m => m.key === analyticsActiveMetric);
+    if (!metric) return -1;
+    const pts = currentHistory
+      .map(snap => ({ ts: snap.ts, value: snap[metric.key] }))
+      .filter(p => p.value != null)
+      .sort((a, b) => a.ts - b.ts);
+    if (!pts.length) return -1;
+
+    const W = canvas.offsetWidth;
+    const padL = 40, padR = 14;
+    const cw = W - padL - padR;
+    const tMin = pts[0].ts, tMax = pts[pts.length - 1].ts, tSpan = Math.max(1, tMax - tMin);
+    const xOf = (t) => padL + ((t - tMin) / tSpan) * cw;
+
+    let closest = 0, minDist = Infinity;
+    pts.forEach((p, i) => {
+      const dist = Math.abs(xOf(p.ts) - mouseX);
+      if (dist < minDist) { minDist = dist; closest = i; }
+    });
+    return minDist < 30 ? closest : -1;
+  }
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const idx = nearestIdx(e.clientX - rect.left);
+    if (idx !== analyticsHoverIdx) {
+      analyticsHoverIdx = idx;
+      drawAnalyticsChart(currentHistory);
+    }
+  });
+  canvas.addEventListener('mouseleave', () => {
+    if (analyticsHoverIdx !== -1) {
+      analyticsHoverIdx = -1;
+      drawAnalyticsChart(currentHistory);
+    }
+  });
+
+  // Expose setter for history data
+  window._setAnalyticsChartHistory = (h) => { currentHistory = h; };
+})();
+
+async function initAnalyticsChart() {
+  const history = await getAnalyticsHistory();
+  window._setAnalyticsChartHistory(history);
+  buildAnalyticsChartTabs(history);
+  drawAnalyticsChart(history);
+}
+
 function loadAnalytics() {
   chrome.runtime.sendMessage({ action: "getAnalytics" }, (data) => {
     renderAnalytics(data || {});
+    initAnalyticsChart();
   });
 }
 
 // Live-refresh analytics when background stores new data
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (
-    area === "local" &&
-    changes.liAnalytics &&
-    analyticsScreen.classList.contains("open")
-  ) {
-    renderAnalytics(changes.liAnalytics.newValue || {});
+  if (area === "local" && analyticsScreen.classList.contains("open")) {
+    if (changes.liAnalytics) {
+      renderAnalytics(changes.liAnalytics.newValue || {});
+    }
+    if (changes.liAnalyticsHistory) {
+      const h = changes.liAnalyticsHistory.newValue || [];
+      window._setAnalyticsChartHistory(h);
+      buildAnalyticsChartTabs(h);
+      drawAnalyticsChart(h);
+    }
   }
 });
 
