@@ -11,4 +11,8 @@ window.addEventListener('message', (event) => {
   if (event.data.type === '__SSI_DATA__') {
     chrome.runtime.sendMessage({ action: 'storeSSI', data: event.data.data });
   }
+
+  if (event.data.type === '__ANALYTICS_DATA__') {
+    chrome.runtime.sendMessage({ action: 'storeAnalytics', url: event.data.url, data: event.data.data });
+  }
 });

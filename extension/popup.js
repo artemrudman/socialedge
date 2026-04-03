@@ -593,37 +593,38 @@ $("btn-refresh").addEventListener("click", () => {
 });
 
 // ── Score Chart ───────────────────────────────────────────────────────────────
-const OVERALL_COLOR  = '#E8E8F0';
-let chartData        = [];   // oldest → newest
-let forecastPtsPro   = [];   // [{ dayOffset, value, label }]
+const OVERALL_COLOR = "#E8E8F0";
+let chartData = []; // oldest → newest
+let forecastPtsPro = []; // [{ dayOffset, value, label }]
 // hoverIdx: 0..n-1 = real; n..n+2 = pro forecast
-let hoverIdx         = -1;
+let hoverIdx = -1;
 
 // ── Forecast computation ──────────────────────────────────────────────────────
 function computeForecast(data) {
   if (!data.length) return [];
-  const base    = new Date(data[0].date);
-  const toDay   = (d) => Math.round((new Date(d) - base) / 86400000);
+  const base = new Date(data[0].date);
+  const toDay = (d) => Math.round((new Date(d) - base) / 86400000);
   const lastDay = toDay(data[data.length - 1].date);
   const lastVal = data[data.length - 1].parsed?.overall ?? 0;
 
   // Pro: personal target 60–65 (deterministic per user)
-  const seed          = data.reduce((a, e) => a + (e.parsed?.overall ?? 0), 0);
-  const pseudo        = ((seed * 9301 + 49297) % 233280) / 233280;
+  const seed = data.reduce((a, e) => a + (e.parsed?.overall ?? 0), 0);
+  const pseudo = ((seed * 9301 + 49297) % 233280) / 233280;
   const personalTarget = 60 + pseudo * 5;
-  const proTarget = lastVal < personalTarget
-    ? personalTarget
-    : Math.min(100, lastVal + (100 - lastVal) * 0.18);
+  const proTarget =
+    lastVal < personalTarget
+      ? personalTarget
+      : Math.min(100, lastVal + (100 - lastVal) * 0.18);
   return [30, 60, 90].map((d) => ({
-    dayOffset : lastDay + d,
-    value     : lastVal + (proTarget - lastVal) * (d / 90),
-    label     : `+${d}d`,
+    dayOffset: lastDay + d,
+    value: lastVal + (proTarget - lastVal) * (d / 90),
+    label: `+${d}d`,
   }));
 }
 
 // ── Static legend ─────────────────────────────────────────────────────────────
 (function buildLegend() {
-  $('chart-legend').innerHTML = `
+  $("chart-legend").innerHTML = `
     <span class="legend-item">
       <span class="legend-line-solid"></span>Overall Score
     </span>
@@ -633,59 +634,66 @@ function computeForecast(data) {
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function drawChart() {
-  const canvas = $('score-chart');
+  const canvas = $("score-chart");
   if (!canvas || !chartData.length) return;
 
   const dpr = window.devicePixelRatio || 1;
-  const W   = canvas.offsetWidth;
-  const H   = canvas.offsetHeight;
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
   if (!W || !H) return;
 
-  canvas.width  = W * dpr;
+  canvas.width = W * dpr;
   canvas.height = H * dpr;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
 
   const pad = { top: 14, right: 14, bottom: 8, left: 32 };
-  const cw  = W - pad.left - pad.right;
-  const ch  = H - pad.top  - pad.bottom;
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top - pad.bottom;
 
   // Date → pixel x (using real calendar days so forecast spacing is proportional)
-  const base    = new Date(chartData[0].date);
-  const toDay   = (d) => Math.round((new Date(d) - base) / 86400000);
+  const base = new Date(chartData[0].date);
+  const toDay = (d) => Math.round((new Date(d) - base) / 86400000);
   const realDays = chartData.map((e) => toDay(e.date));
   const allFcPts = [...forecastPtsPro];
-  const maxDay   = allFcPts.length
+  const maxDay = allFcPts.length
     ? allFcPts[allFcPts.length - 1].dayOffset
     : realDays[realDays.length - 1];
   const xOf = (day) => pad.left + (maxDay ? (day / maxDay) * cw : cw / 2);
-  const yOf = (v)   => pad.top  + (1 - v / 100) * ch;
+  const yOf = (v) => pad.top + (1 - v / 100) * ch;
 
   // ── Grid ────────────────────────────────────────────────────────────────
-  ctx.font      = '9px -apple-system,sans-serif';
-  ctx.textAlign = 'right';
+  ctx.font = "9px -apple-system,sans-serif";
+  ctx.textAlign = "right";
   [0, 25, 50, 75, 100].forEach((v) => {
     const y = yOf(v);
-    ctx.strokeStyle = '#1A1A24'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
-    ctx.fillStyle = '#42425A';
+    ctx.strokeStyle = "#1A1A24";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+    ctx.fillStyle = "#42425A";
     ctx.fillText(v, pad.left - 5, y + 3.5);
   });
 
   // ── Forecast region tint ─────────────────────────────────────────────────
   if (forecastPtsPro.length) {
-    const fx    = xOf(realDays[realDays.length - 1]);
+    const fx = xOf(realDays[realDays.length - 1]);
     const fGrad = ctx.createLinearGradient(fx, 0, W - pad.right, 0);
-    fGrad.addColorStop(0, 'rgba(96,165,250,.05)');
-    fGrad.addColorStop(1, 'rgba(96,165,250,.11)');
+    fGrad.addColorStop(0, "rgba(96,165,250,.05)");
+    fGrad.addColorStop(1, "rgba(96,165,250,.11)");
     ctx.fillStyle = fGrad;
     ctx.fillRect(fx, pad.top, W - pad.right - fx, ch);
 
     // divider at junction
-    ctx.strokeStyle = 'rgba(96,165,250,.18)';
-    ctx.lineWidth   = 1;
+    ctx.strokeStyle = "rgba(96,165,250,.18)";
+    ctx.lineWidth = 1;
     ctx.setLineDash([2, 3]);
-    ctx.beginPath(); ctx.moveTo(fx, pad.top); ctx.lineTo(fx, pad.top + ch); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(fx, pad.top);
+    ctx.lineTo(fx, pad.top + ch);
+    ctx.stroke();
     ctx.setLineDash([]);
   }
 
@@ -694,17 +702,23 @@ function drawChart() {
   // ── Area fill under real line ────────────────────────────────────────────
   {
     const scores = chartData.map((e) => e.parsed?.overall ?? null);
-    const grad   = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
-    grad.addColorStop(0, 'rgba(232,232,240,.12)');
-    grad.addColorStop(1, 'rgba(232,232,240,.00)');
+    const grad = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
+    grad.addColorStop(0, "rgba(232,232,240,.12)");
+    grad.addColorStop(1, "rgba(232,232,240,.00)");
     ctx.fillStyle = grad;
     ctx.beginPath();
-    let fI = -1; let lI = -1; let started = false;
+    let fI = -1;
+    let lI = -1;
+    let started = false;
     scores.forEach((v, i) => {
       if (v == null) return;
-      const x = xOf(realDays[i]); const y = yOf(v);
-      if (!started) { ctx.moveTo(x, y); started = true; fI = i; }
-      else {
+      const x = xOf(realDays[i]);
+      const y = yOf(v);
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+        fI = i;
+      } else {
         const pp = scores[i - 1] ?? v;
         const cpx = (xOf(realDays[i - 1]) + x) / 2;
         ctx.bezierCurveTo(cpx, yOf(pp), cpx, y, x, y);
@@ -715,20 +729,31 @@ function drawChart() {
       ctx.lineTo(xOf(realDays[lI]), H - pad.bottom);
       ctx.lineTo(xOf(realDays[fI]), H - pad.bottom);
     }
-    ctx.closePath(); ctx.fill();
+    ctx.closePath();
+    ctx.fill();
   }
 
   // ── Real overall line ────────────────────────────────────────────────────
   {
     const scores = chartData.map((e) => e.parsed?.overall ?? null);
-    ctx.strokeStyle = OVERALL_COLOR; ctx.lineWidth = 2.4;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = OVERALL_COLOR;
+    ctx.lineWidth = 2.4;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     ctx.beginPath();
     let started = false;
     scores.forEach((v, i) => {
-      if (v == null) { started = false; return; }
-      const x = xOf(realDays[i]); const y = yOf(v);
-      if (!started) { ctx.moveTo(x, y); started = true; return; }
+      if (v == null) {
+        started = false;
+        return;
+      }
+      const x = xOf(realDays[i]);
+      const y = yOf(v);
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+        return;
+      }
       const pp = scores[i - 1] ?? v;
       const cpx = (xOf(realDays[i - 1]) + x) / 2;
       ctx.bezierCurveTo(cpx, yOf(pp), cpx, y, x, y);
@@ -741,9 +766,13 @@ function drawChart() {
       const isHov = hoverIdx === i;
       ctx.beginPath();
       ctx.arc(xOf(realDays[i]), yOf(v), isHov ? 4.5 : 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = isHov ? OVERALL_COLOR : OVERALL_COLOR + '99';
+      ctx.fillStyle = isHov ? OVERALL_COLOR : OVERALL_COLOR + "99";
       ctx.fill();
-      if (isHov) { ctx.strokeStyle = '#0C0C10'; ctx.lineWidth = 1.5; ctx.stroke(); }
+      if (isHov) {
+        ctx.strokeStyle = "#0C0C10";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
     });
   }
 
@@ -754,12 +783,13 @@ function drawChart() {
     const x0 = xOf(realDays[realDays.length - 1]);
     const x1 = xOf(pts[pts.length - 1].dayOffset);
     const grad = ctx.createLinearGradient(x0, 0, x1, 0);
-    grad.addColorStop(0,   `${color}88`);
-    grad.addColorStop(1,   `${color}44`);
+    grad.addColorStop(0, `${color}88`);
+    grad.addColorStop(1, `${color}44`);
     ctx.strokeStyle = grad;
-    ctx.lineWidth   = 1.8;
+    ctx.lineWidth = 1.8;
     ctx.setLineDash(dashPat);
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(x0, yOf(lastReal));
     pts.forEach((fp) => ctx.lineTo(xOf(fp.dayOffset), yOf(fp.value)));
@@ -768,47 +798,68 @@ function drawChart() {
 
     pts.forEach((fp, fi) => {
       const isHov = hoverIdx === idxOffset + fi;
-      const fx = xOf(fp.dayOffset); const fy = yOf(fp.value);
+      const fx = xOf(fp.dayOffset);
+      const fy = yOf(fp.value);
       ctx.beginPath();
       ctx.arc(fx, fy, isHov ? 5 : 3.2, 0, Math.PI * 2);
-      ctx.fillStyle   = isHov ? color + '28' : '#111118';
-      ctx.strokeStyle = isHov ? color : color + '88';
-      ctx.lineWidth   = isHov ? 2 : 1.5;
-      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = isHov ? color + "28" : "#111118";
+      ctx.strokeStyle = isHov ? color : color + "88";
+      ctx.lineWidth = isHov ? 2 : 1.5;
+      ctx.fill();
+      ctx.stroke();
     });
   }
 
   const n = chartData.length;
   // Pro forecast: green dashes
-  drawForecastLine(forecastPtsPro, '#34D399', [7, 4], n);
+  drawForecastLine(forecastPtsPro, "#34D399", [7, 4], n);
 
   // ── Crosshair + tooltip ───────────────────────────────────────────────────
   const allPts = [
-    ...realDays.map((day, i)       => ({ i,      x: xOf(day),             isPro: false })),
-    ...forecastPtsPro.map((fp, fi) => ({ i: n+fi, x: xOf(fp.dayOffset),   isPro: true, fp })),
+    ...realDays.map((day, i) => ({ i, x: xOf(day), isPro: false })),
+    ...forecastPtsPro.map((fp, fi) => ({
+      i: n + fi,
+      x: xOf(fp.dayOffset),
+      isPro: true,
+      fp,
+    })),
   ];
   const hov = allPts.find((p) => p.i === hoverIdx);
 
   if (hov) {
-    ctx.strokeStyle = '#46465A'; ctx.lineWidth = 1;
+    ctx.strokeStyle = "#46465A";
+    ctx.lineWidth = 1;
     ctx.setLineDash([3, 4]);
-    ctx.beginPath(); ctx.moveTo(hov.x, pad.top); ctx.lineTo(hov.x, H - pad.bottom); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(hov.x, pad.top);
+    ctx.lineTo(hov.x, H - pad.bottom);
+    ctx.stroke();
     ctx.setLineDash([]);
 
-    const tooltip = $('chart-tooltip');
+    const tooltip = $("chart-tooltip");
 
     function topEstRows(fp, exponent) {
-      const lastEntry  = chartData[chartData.length - 1];
-      const lastScore  = lastEntry.parsed?.overall ?? 0;
+      const lastEntry = chartData[chartData.length - 1];
+      const lastScore = lastEntry.parsed?.overall ?? 0;
       const lastIndTop = lastEntry.parsed?.industry?.top;
       const lastNetTop = lastEntry.parsed?.network?.top;
-      const ratio      = lastScore > 0 ? lastScore / fp.value : 1;
-      const eInd = lastIndTop != null ? Math.max(1, Math.round(lastIndTop * Math.pow(ratio, exponent))) : null;
-      const eNet = lastNetTop != null ? Math.max(1, Math.round(lastNetTop * Math.pow(ratio, exponent))) : null;
+      const ratio = lastScore > 0 ? lastScore / fp.value : 1;
+      const eInd =
+        lastIndTop != null
+          ? Math.max(1, Math.round(lastIndTop * Math.pow(ratio, exponent)))
+          : null;
+      const eNet =
+        lastNetTop != null
+          ? Math.max(1, Math.round(lastNetTop * Math.pow(ratio, exponent)))
+          : null;
       return [
-        eInd != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Industry</span><span class="ct-val">~Top ${eInd}%</span></div>` : '',
-        eNet != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Network</span><span class="ct-val">~Top ${eNet}%</span></div>` : '',
-      ].join('');
+        eInd != null
+          ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Industry</span><span class="ct-val">~Top ${eInd}%</span></div>`
+          : "",
+        eNet != null
+          ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Network</span><span class="ct-val">~Top ${eNet}%</span></div>`
+          : "",
+      ].join("");
     }
 
     if (hov.isPro) {
@@ -820,16 +871,20 @@ function drawChart() {
           <span class="ct-label">Projected SSI</span>
           <span class="ct-val">~${hov.fp.value.toFixed(1)}<span style="color:var(--text-3);font-weight:400">/100</span></span>
         </div>
-        ${rows ? `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">${rows}</div>` : ''}
+        ${rows ? `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">${rows}</div>` : ""}
         <div class="ct-note">With consistent daily activity<br>from the Advanced Plan</div>`;
     } else {
       const e = chartData[hov.i];
       const indTop = e.parsed?.industry?.top;
       const netTop = e.parsed?.network?.top;
       const topRows = [
-        indTop != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Industry</span><span class="ct-val">Top ${indTop}%</span></div>` : '',
-        netTop != null ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Network</span><span class="ct-val">Top ${netTop}%</span></div>` : '',
-      ].join('');
+        indTop != null
+          ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Industry</span><span class="ct-val">Top ${indTop}%</span></div>`
+          : "",
+        netTop != null
+          ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Network</span><span class="ct-val">Top ${netTop}%</span></div>`
+          : "",
+      ].join("");
       tooltip.innerHTML = `
         <div class="ct-date">${e.date}</div>
         <div class="ct-row">
@@ -837,53 +892,66 @@ function drawChart() {
           <span class="ct-label">Overall SSI</span>
           <span class="ct-val">${(e.parsed?.overall ?? 0).toFixed(1)}<span style="color:var(--text-3);font-weight:400">/100</span></span>
         </div>
-        ${topRows ? `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">${topRows}</div>` : ''}`;
+        ${topRows ? `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">${topRows}</div>` : ""}`;
     }
-    tooltip.classList.remove('hidden');
+    tooltip.classList.remove("hidden");
     const tipW = tooltip.offsetWidth || 160;
     tooltip.style.left = `${hov.x + 12 + tipW > W ? hov.x - tipW - 12 : hov.x + 12}px`;
-    tooltip.style.top  = `${pad.top}px`;
+    tooltip.style.top = `${pad.top}px`;
   } else {
-    $('chart-tooltip').classList.add('hidden');
+    $("chart-tooltip").classList.add("hidden");
   }
 }
 
 function initChart(history) {
-  chartData      = history.slice(0, 30).slice().reverse();
+  chartData = history.slice(0, 30).slice().reverse();
   forecastPtsPro = computeForecast(chartData);
   drawChart();
 }
 
 // Mouse interaction
 (function bindChartEvents() {
-  const canvas = $('score-chart');
+  const canvas = $("score-chart");
 
   function nearestIdx(mouseX) {
     if (!chartData.length) return -1;
-    const base     = new Date(chartData[0].date);
-    const toDay    = (d) => Math.round((new Date(d) - base) / 86400000);
+    const base = new Date(chartData[0].date);
+    const toDay = (d) => Math.round((new Date(d) - base) / 86400000);
     const realDays = chartData.map((e) => toDay(e.date));
-    const maxDay   = forecastPtsPro.length ? forecastPtsPro[forecastPtsPro.length - 1].dayOffset : realDays[realDays.length - 1];
-    const padL = 32; const padR = 14;
-    const cw   = canvas.offsetWidth - padL - padR;
-    const xOf  = (day) => padL + (maxDay ? (day / maxDay) * cw : cw / 2);
-    const n    = chartData.length;
+    const maxDay = forecastPtsPro.length
+      ? forecastPtsPro[forecastPtsPro.length - 1].dayOffset
+      : realDays[realDays.length - 1];
+    const padL = 32;
+    const padR = 14;
+    const cw = canvas.offsetWidth - padL - padR;
+    const xOf = (day) => padL + (maxDay ? (day / maxDay) * cw : cw / 2);
+    const n = chartData.length;
 
     const all = [
-      ...realDays.map((day, i)       => ({ i,      x: xOf(day) })),
-      ...forecastPtsPro.map((fp, fi) => ({ i: n+fi, x: xOf(fp.dayOffset) })),
+      ...realDays.map((day, i) => ({ i, x: xOf(day) })),
+      ...forecastPtsPro.map((fp, fi) => ({ i: n + fi, x: xOf(fp.dayOffset) })),
     ];
-    let best = -1; let bestD = Infinity;
-    all.forEach(({ i, x }) => { const d = Math.abs(x - mouseX); if (d < bestD) { bestD = d; best = i; } });
+    let best = -1;
+    let bestD = Infinity;
+    all.forEach(({ i, x }) => {
+      const d = Math.abs(x - mouseX);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
     return bestD < 28 ? best : -1;
   }
 
-  canvas.addEventListener('mousemove', (e) => {
+  canvas.addEventListener("mousemove", (e) => {
     const rect = canvas.getBoundingClientRect();
-    hoverIdx   = nearestIdx(e.clientX - rect.left);
+    hoverIdx = nearestIdx(e.clientX - rect.left);
     drawChart();
   });
-  canvas.addEventListener('mouseleave', () => { hoverIdx = -1; drawChart(); });
+  canvas.addEventListener("mouseleave", () => {
+    hoverIdx = -1;
+    drawChart();
+  });
 })();
 
 // ── History screen ────────────────────────────────────────────────────────────────
@@ -916,23 +984,180 @@ function doExport() {
 $("btn-export-main").addEventListener("click", doExport);
 $("btn-export-history").addEventListener("click", doExport);
 
+// ── Analytics screen ──────────────────────────────────────────────────────────
+const analyticsScreen = $("analytics-screen");
+
+function showAnalyticsStatus(msg, type, duration = 0) {
+  const el = $("analytics-status");
+  el.textContent = msg;
+  el.className = `analytics-status ${type}`;
+  if (duration > 0) setTimeout(() => el.classList.add("hidden"), duration);
+}
+
+$("btn-analytics").addEventListener("click", () => {
+  analyticsScreen.classList.add("open");
+  loadAnalytics();
+});
+
+$("analytics-refresh-btn").addEventListener("click", () => {
+  const btn = $("analytics-refresh-btn");
+  btn.disabled = true;
+  showAnalyticsStatus("Fetching from LinkedIn…", "info");
+
+  chrome.runtime.sendMessage({ action: "fetchAnalytics" }, (result) => {
+    btn.disabled = false;
+    if (!result || result.error) {
+      showAnalyticsStatus(
+        result?.error || "Failed — open a LinkedIn tab and try again.",
+        "error",
+        6000,
+      );
+    } else {
+      showAnalyticsStatus("Analytics updated!", "success", 3000);
+      loadAnalytics();
+    }
+  });
+});
+$("analytics-back-btn").addEventListener("click", () =>
+  analyticsScreen.classList.remove("open"),
+);
+
+function fmtNum(v) {
+  if (v == null) return null;
+  if (v >= 1000000) return (v / 1000000).toFixed(1) + "M";
+  if (v >= 1000) return (v / 1000).toFixed(1) + "K";
+  return String(v);
+}
+
+function timeAgo(ts) {
+  if (!ts) return "";
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+function makeCard(icon, iconBg, label, value, sub) {
+  const val = fmtNum(value);
+  const valHtml =
+    val != null
+      ? `<span class="analytics-card-value">${val}</span>`
+      : `<span class="analytics-card-value na">—</span>`;
+  return `
+    <div class="analytics-card">
+      <div class="analytics-card-icon" style="background:${iconBg}">${icon}</div>
+      ${valHtml}
+      <div class="analytics-card-label">${label}</div>
+      ${sub ? `<div class="analytics-card-sub">${sub}</div>` : ""}
+    </div>`;
+}
+
+function renderAnalytics(data) {
+  const empty = $("analytics-empty");
+  const cards = $("analytics-cards");
+  const net = data.network || {};
+  const cont = data.content || {};
+  const dash = data.dashboard || {};
+
+  const hasAny = Object.keys(data).length > 0;
+  empty.style.display = hasAny ? "none" : "flex";
+  cards.innerHTML = "";
+
+  if (!hasAny) return;
+
+  // Merge profile views: prefer dashboard value, fallback to network
+  const profileViews = dash.profileViews ?? net.profileViews;
+  const searchApp = dash.searchAppearances;
+  const followers = net.followers;
+  const connections = net.connections;
+  const impressions = cont.impressions;
+  const engagements = cont.engagements;
+  const uniqueViews = cont.uniqueViews;
+
+  const latestTs = Math.max(net.ts || 0, cont.ts || 0, dash.ts || 0);
+
+  const svgEye = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <path d="M1 7C1 7 3.5 2.5 7 2.5S13 7 13 7s-2.5 4.5-6 4.5S1 7 1 7z"
+          stroke="#60A5FA" stroke-width="1.4" stroke-linejoin="round"/>
+    <circle cx="7" cy="7" r="1.8" fill="#60A5FA"/></svg>`;
+  const svgSearch = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <circle cx="6" cy="6" r="4" stroke="#A78BFA" stroke-width="1.4"/>
+    <line x1="9" y1="9" x2="13" y2="13" stroke="#A78BFA" stroke-width="1.4"
+          stroke-linecap="round"/></svg>`;
+  const svgFollower = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <circle cx="7" cy="5" r="2.5" stroke="#34D399" stroke-width="1.4"/>
+    <path d="M2 12c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="#34D399"
+          stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  const svgConnect = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <circle cx="4" cy="5" r="2" stroke="#FBBF24" stroke-width="1.4"/>
+    <circle cx="10" cy="5" r="2" stroke="#FBBF24" stroke-width="1.4"/>
+    <path d="M1 12c0-1.7 1.3-3 3-3s3 1.3 3 3M7 12c0-1.7 1.3-3 3-3s3 1.3 3 3"
+          stroke="#FBBF24" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  const svgImpression = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <rect x="1"  y="8" width="3" height="5" rx="1" fill="#F87171"/>
+    <rect x="5.5" y="5" width="3" height="8" rx="1" fill="#F87171" opacity=".75"/>
+    <rect x="10" y="2" width="3" height="11" rx="1" fill="#F87171" opacity=".5"/></svg>`;
+  const svgHeart = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <path d="M7 11.5S1.5 8 1.5 4.5a2.8 2.8 0 0 1 5.5-.8 2.8 2.8 0 0 1 5.5.8C12.5 8 7 11.5 7 11.5z"
+          fill="#F472B6" opacity=".8"/></svg>`;
+
+  cards.innerHTML = `
+    <div class="analytics-section-title">Profile</div>
+    ${makeCard(svgEye, "rgba(96,165,250,.12)", "Profile Views", profileViews, "Last 90 days")}
+    ${makeCard(svgSearch, "rgba(167,139,250,.12)", "Search Appearances", searchApp, "Last 90 days")}
+    ${makeCard(svgFollower, "rgba(52,211,153,.12)", "Followers", followers, null)}
+    ${makeCard(svgImpression, "rgba(248,113,113,.12)", "Post Impressions", impressions, "Across all posts")}
+    <div class="analytics-updated">Updated ${timeAgo(latestTs)}</div>`;
+
+  // cards.innerHTML = `
+  //   <div class="analytics-section-title">Profile</div>
+  //   ${makeCard(svgEye,    'rgba(96,165,250,.12)',  'Profile Views',       profileViews, 'Last 90 days')}
+  //   ${makeCard(svgSearch, 'rgba(167,139,250,.12)', 'Search Appearances',  searchApp,    'Last 90 days')}
+  //   ${makeCard(svgFollower,'rgba(52,211,153,.12)', 'Followers',           followers,    null)}
+  //   ${makeCard(svgConnect,'rgba(251,191,36,.12)',  'Connections',         connections,  null)}
+  //   <div class="analytics-section-title">Content</div>
+  //   ${makeCard(svgImpression,'rgba(248,113,113,.12)','Post Impressions',  impressions,  'Across all posts')}
+  //   ${makeCard(svgImpression,'rgba(248,113,113,.08)','Unique Views',      uniqueViews,  'Unique viewers')}
+  //   ${makeCard(svgHeart,  'rgba(244,114,182,.12)', 'Engagements',         engagements,  'Likes, comments, shares')}
+  //   <div class="analytics-updated">Updated ${timeAgo(latestTs)}</div>`;
+}
+
+function loadAnalytics() {
+  chrome.runtime.sendMessage({ action: "getAnalytics" }, (data) => {
+    renderAnalytics(data || {});
+  });
+}
+
+// Live-refresh analytics when background stores new data
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (
+    area === "local" &&
+    changes.liAnalytics &&
+    analyticsScreen.classList.contains("open")
+  ) {
+    renderAnalytics(changes.liAnalytics.newValue || {});
+  }
+});
+
 // ── Day / Night theme ─────────────────────────────────────────────────────────
 function setThemeHint(isDay) {
-  const el = $('theme-hint');
-  if (el) el.textContent = isDay ? 'Day mode' : 'Night mode';
+  const el = $("theme-hint");
+  if (el) el.textContent = isDay ? "Day mode" : "Night mode";
 }
 
 (function initTheme() {
-  chrome.storage.local.get(['theme'], ({ theme }) => {
-    const isDay = theme === 'day';
-    if (isDay) document.documentElement.classList.add('day');
+  chrome.storage.local.get(["theme"], ({ theme }) => {
+    const isDay = theme === "day";
+    if (isDay) document.documentElement.classList.add("day");
     setThemeHint(isDay);
   });
 })();
 
-$('theme-toggle').addEventListener('click', () => {
-  const isDay = document.documentElement.classList.toggle('day');
-  chrome.storage.local.set({ theme: isDay ? 'day' : 'night' });
+$("theme-toggle").addEventListener("click", () => {
+  const isDay = document.documentElement.classList.toggle("day");
+  chrome.storage.local.set({ theme: isDay ? "day" : "night" });
   setThemeHint(isDay);
   requestAnimationFrame(drawChart);
 });

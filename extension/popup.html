@@ -183,6 +183,14 @@
       Refresh Score
     </button>
     <button id="btn-export-main" class="btn-ghost">Export JSON</button>
+    <button id="btn-analytics" class="btn-ghost">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <rect x="1" y="7" width="3" height="5" rx="1" fill="currentColor" opacity=".5"/>
+        <rect x="5" y="4" width="3" height="8" rx="1" fill="currentColor" opacity=".75"/>
+        <rect x="9" y="1" width="3" height="11" rx="1" fill="currentColor"/>
+      </svg>
+      Analytics
+    </button>
   </section>
 
   <div id="status-bar" class="status-bar hidden"></div>
@@ -255,6 +263,42 @@
           <tr><td colspan="7" class="empty-cell">No data yet</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ── Analytics screen (slides from right) ────────────────────────────── -->
+  <div class="analytics-screen" id="analytics-screen">
+    <header class="detail-header">
+      <button class="back-btn" id="analytics-back-btn" aria-label="Back">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+      <span class="analytics-screen-title">LinkedIn Analytics</span>
+      <button class="analytics-refresh-link" id="analytics-refresh-btn">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" id="analytics-refresh-icon">
+          <path d="M11 6.5A4.5 4.5 0 1 1 6.5 2" stroke="currentColor"
+                stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M6.5 2l1.8-1.8M6.5 2l1.8 1.8" stroke="currentColor"
+                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Refresh
+      </button>
+    </header>
+    <div class="analytics-status hidden" id="analytics-status"></div>
+    <div class="analytics-body" id="analytics-body">
+      <div class="analytics-empty" id="analytics-empty">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" opacity=".3">
+          <rect x="3" y="20" width="8" height="13" rx="2" fill="currentColor"/>
+          <rect x="14" y="12" width="8" height="21" rx="2" fill="currentColor"/>
+          <rect x="25" y="4"  width="8" height="29" rx="2" fill="currentColor"/>
+        </svg>
+        <p>No analytics data yet.</p>
+        <p>Click <strong>Refresh</strong> above while a LinkedIn tab is open.</p>
+      </div>
+      <div id="analytics-cards" class="analytics-cards"></div>
     </div>
   </div>
 
