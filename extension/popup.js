@@ -1025,7 +1025,7 @@ $("analytics-back-btn").addEventListener("click", () =>
 function fmtNum(v) {
   if (v == null) return null;
   if (v >= 1000000) return (v / 1000000).toFixed(1) + "M";
-  if (v >= 1000) return (v / 1000).toFixed(1) + "K";
+  if (v >= 10000) return (v / 1000).toFixed(1) + "K";
   return String(v);
 }
 
