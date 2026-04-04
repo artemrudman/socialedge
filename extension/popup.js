@@ -558,37 +558,51 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// ── Refresh button ────────────────────────────────────────────────────────────────
+// ── Shared refresh icon SVGs ──────────────────────────────────────────────────
+const REFRESH_SVG = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M11 6.5A4.5 4.5 0 1 1 6.5 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M6.5 2l1.8-1.8M6.5 2l1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const CHECK_SVG = `<svg class="btn-check" width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2.5 7L5.5 10L10.5 3.5" stroke="#34D399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+function animateBtn(btn, origHTML, state) {
+  // state: 'loading' | 'success' | 'error'
+  btn.classList.remove('loading', 'success-pulse', 'error-shake');
+  void btn.offsetWidth;
+
+  if (state === 'loading') {
+    btn.classList.add('loading');
+    btn.innerHTML = `<span class="btn-spinner"></span> Fetching…`;
+  } else if (state === 'success') {
+    btn.classList.add('success-pulse');
+    btn.innerHTML = `${CHECK_SVG} Updated!`;
+    spawnSaveParticles(btn);
+    btn.addEventListener('animationend', () => btn.classList.remove('success-pulse'), { once: true });
+    setTimeout(() => { btn.innerHTML = origHTML; }, 2200);
+  } else if (state === 'error') {
+    btn.classList.add('error-shake');
+    btn.innerHTML = `${REFRESH_SVG} Try again`;
+    btn.addEventListener('animationend', () => btn.classList.remove('error-shake'), { once: true });
+    setTimeout(() => { btn.innerHTML = origHTML; }, 3000);
+  }
+}
+
+// ── Refresh button ───────────────────────────────────────────────────────────────
+const REFRESH_BTN_HTML = `${REFRESH_SVG} Refresh Score`;
 $("btn-refresh").addEventListener("click", () => {
   const btn = $("btn-refresh");
-  btn.disabled = true;
-  btn.textContent = "Fetching…";
-  showStatus("Fetching in background…", "success", 0);
+  if (btn.classList.contains('loading')) return;
+  animateBtn(btn, REFRESH_BTN_HTML, 'loading');
 
   chrome.runtime.sendMessage({ action: "fetchNow" }, (result) => {
-    btn.disabled = false;
-    btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-      <path d="M11 6.5A4.5 4.5 0 1 1 6.5 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M6.5 2l1.8-1.8M6.5 2l1.8 1.8" stroke="currentColor" stroke-width="1.6"
-            stroke-linecap="round" stroke-linejoin="round"/>
-    </svg> Refresh Score`;
-
-    if (!result) {
-      showStatus("No response. Try reloading the extension.", "error");
+    if (!result || result.error) {
+      animateBtn(btn, REFRESH_BTN_HTML, 'error');
       return;
     }
-    if (result.error) {
-      showStatus(result.error, "error");
-      return;
-    }
-
+    animateBtn(btn, REFRESH_BTN_HTML, 'success');
     chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
       if (history?.length) {
         render(history[0], history[1]);
         renderHistory(history);
       }
     });
-    showStatus("Score updated!", "success");
   });
 });
 
@@ -987,35 +1001,24 @@ $("btn-export-history").addEventListener("click", doExport);
 // ── Analytics screen ──────────────────────────────────────────────────────────
 const analyticsScreen = $("analytics-screen");
 
-function showAnalyticsStatus(msg, type, duration = 0) {
-  const el = $("analytics-status");
-  el.textContent = msg;
-  el.className = `analytics-status ${type}`;
-  if (duration > 0) setTimeout(() => el.classList.add("hidden"), duration);
-}
-
 $("btn-analytics").addEventListener("click", () => {
   analyticsScreen.classList.add("open");
   loadAnalytics();
 });
 
+const ANALYTICS_BTN_HTML = `${REFRESH_SVG} Refresh`;
 $("analytics-refresh-btn").addEventListener("click", () => {
   const btn = $("analytics-refresh-btn");
-  btn.disabled = true;
-  showAnalyticsStatus("Fetching from LinkedIn…", "info");
+  if (btn.classList.contains('loading')) return;
+  animateBtn(btn, ANALYTICS_BTN_HTML, 'loading');
 
   chrome.runtime.sendMessage({ action: "fetchAnalytics" }, (result) => {
-    btn.disabled = false;
     if (!result || result.error) {
-      showAnalyticsStatus(
-        result?.error || "Failed — open a LinkedIn tab and try again.",
-        "error",
-        6000,
-      );
-    } else {
-      showAnalyticsStatus("Analytics updated!", "success", 3000);
-      loadAnalytics();
+      animateBtn(btn, ANALYTICS_BTN_HTML, 'error');
+      return;
     }
+    animateBtn(btn, ANALYTICS_BTN_HTML, 'success');
+    loadAnalytics();
   });
 });
 $("analytics-back-btn").addEventListener("click", () =>

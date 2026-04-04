@@ -484,6 +484,43 @@ body { position: relative; overflow-x: hidden; }
   100% { box-shadow: 0 0 0 0   rgba(52,211,153,0); }
 }
 
+/* ── Refresh button states ─────────────────────────────────────────────── */
+.btn-primary.loading,
+.analytics-refresh-link.loading { pointer-events: none; opacity: .75; }
+
+.btn-primary .btn-spinner,
+.analytics-refresh-link .btn-spinner {
+  display: inline-block;
+  width: 13px; height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin .65s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.btn-primary.success-pulse  { animation: btn-pulse .5s ease-out; }
+.analytics-refresh-link.success-pulse { animation: btn-pulse .5s ease-out; }
+
+.btn-primary .btn-check,
+.analytics-refresh-link .btn-check {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.btn-primary.error-shake,
+.analytics-refresh-link.error-shake {
+  animation: error-shake .45s ease-out;
+}
+@keyframes error-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
 .save-confirm {
   display: flex;
   align-items: center;
