@@ -168,15 +168,288 @@ chrome.runtime.onStartup.addListener(async () => {
   const today   = new Date().toISOString().split('T')[0];
   if (!history[0] || history[0].date !== today) {
     console.log('[SocialEdge] New day on startup — will fetch when LinkedIn tab is available.');
-    // Attempt now; if no LinkedIn tab, webRequest will catch it when user opens one
     runFetch().catch(() => {});
   }
+  // Generate daily quest & push notification on browser start
+  generateDailyQuest(true);
 });
 
 // ── Daily alarm fallback ──────────────────────────────────────────────────────
 chrome.alarms.create('dailyFetch', { periodInMinutes: 1440 });
+
+// ── Daily Quest alarm (fires every 6 hours so we catch ~9 AM in any timezone) ─
+chrome.alarms.create('dailyQuest', { periodInMinutes: 360 });
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'dailyFetch') runFetch();
+  if (alarm.name === 'dailyQuest') generateDailyQuest(true);
+});
+
+// ── Daily Quest — Duolingo-style activity suggestions ────────────────────────
+// 40 activities across 4 pillars. Each day pick 3-5 with smart weighting.
+// Avoids recently-done & recently-suggested. Balances across pillars.
+// Pushes a Chrome notification to nudge the user.
+
+const QUEST_KEY      = '_se_dailyQuest';
+const QUEST_HIST_KEY = '_se_questHistory';    // last 7 days of quest IDs
+const ACT_KEY_BG     = 'dailyActivities';     // same key popup uses
+
+const ALL_ACTIVITIES = {
+  prof_brand: [
+    "Published an original post",
+    "Published a long-form article",
+    "Updated a profile section",
+    "Requested a skill endorsement",
+    "Gave a skill endorsement to a connection",
+    "Shared industry content with personal commentary",
+    "Refreshed profile photo or banner",
+    "Added a quantified achievement to experience",
+    "Added or updated featured section",
+    "Completed a LinkedIn learning course",
+  ],
+  find_right_people: [
+    "Used advanced search filters to find prospects",
+    "Saved 5+ new leads",
+    "Saved a new account",
+    'Reviewed "People Also Viewed" suggestions',
+    "Used TeamLink to find a warm introduction",
+    "Browsed recommended accounts",
+    "Ran a boolean search query",
+    "Filtered by job change in the past 90 days",
+    "Searched within a specific account",
+    "Reviewed lead recommendations from Sales Navigator",
+  ],
+  insight_engagement: [
+    "Left a thoughtful comment on a lead's post",
+    "Shared content with personal insight added",
+    "Engaged with a target account's content",
+    "Created a poll",
+    "Responded to a poll",
+    "Sent a relevant article to a prospect",
+    "Liked a post from a saved lead",
+    "Reposted with added perspective",
+    "Replied to a comment on my own post",
+    "Tagged a connection in a relevant post",
+  ],
+  relationship: [
+    "Sent a personalized InMail",
+    "Followed up with a new connection",
+    "Congratulated a lead on a job change",
+    "Congratulated a lead on a work anniversary",
+    "Reconnected with a dormant contact",
+    "Responded to a message within 24 hours",
+    "Sent a voice note to a prospect",
+    "Accepted a connection request with a personal reply",
+    "Introduced two connections to each other",
+    "Scheduled a call or meeting with a lead",
+  ],
+};
+
+const PILLAR_NAMES = {
+  prof_brand: "Professional Brand",
+  find_right_people: "Find Right People",
+  insight_engagement: "Insight Engagement",
+  relationship: "Strong Relationships",
+};
+
+async function generateDailyQuest(sendNotification = false) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const stored = await chrome.storage.local.get([QUEST_KEY, QUEST_HIST_KEY, ACT_KEY_BG, SSI_HISTORY_KEY]);
+
+  // Don't regenerate if already have today's quest
+  const existing = stored[QUEST_KEY];
+  if (existing?.date === todayStr) return existing;
+
+  const questHistory = stored[QUEST_HIST_KEY] || [];    // array of { date, ids:[...] }
+  const doneActivities = stored[ACT_KEY_BG] || {};
+  const ssiHistory = stored[SSI_HISTORY_KEY] || [];
+
+  // Build a flat list of all activities with IDs
+  const pool = [];
+  for (const [pillar, items] of Object.entries(ALL_ACTIVITIES)) {
+    items.forEach((label, idx) => {
+      pool.push({ id: `${pillar}:${idx}`, pillar, idx, label });
+    });
+  }
+
+  // ── Weighting ─────────────────────────────────────────────────────────
+  // 1. Avoid activities done yesterday or the day before
+  // 2. Avoid activities suggested in last 3 days
+  // 3. Boost pillars where the user's SSI score is lowest (weakest area)
+  // 4. Boost activities the user has never done
+
+  const recentDoneIds = new Set();
+  const last2Days = [todayStr];
+  for (let i = 1; i <= 2; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    last2Days.push(d.toISOString().split('T')[0]);
+  }
+  for (const day of last2Days) {
+    const dayAct = doneActivities[day];
+    if (!dayAct) continue;
+    for (const [pillar, checks] of Object.entries(dayAct)) {
+      checks.forEach((checked, idx) => {
+        if (checked) recentDoneIds.add(`${pillar}:${idx}`);
+      });
+    }
+  }
+
+  const recentSuggestedIds = new Set();
+  const last3Quests = questHistory.slice(-3);
+  for (const q of last3Quests) {
+    (q.ids || []).forEach(id => recentSuggestedIds.add(id));
+  }
+
+  // Find weakest pillar from latest SSI data
+  const latestSSI = ssiHistory[0]?.parsed;
+  const pillarScores = {};
+  if (latestSSI) {
+    for (const p of Object.keys(ALL_ACTIVITIES)) {
+      pillarScores[p] = latestSSI[p] ?? 12.5; // default to mid-range
+    }
+  }
+  const minPillarScore = Math.min(...Object.values(pillarScores));
+
+  // Count lifetime completions per activity
+  const lifetimeCounts = {};
+  for (const dayActs of Object.values(doneActivities)) {
+    for (const [pillar, checks] of Object.entries(dayActs)) {
+      checks.forEach((checked, idx) => {
+        const key = `${pillar}:${idx}`;
+        if (checked) lifetimeCounts[key] = (lifetimeCounts[key] || 0) + 1;
+      });
+    }
+  }
+
+  // Score each activity
+  const scored = pool.map(a => {
+    let weight = 1.0;
+
+    // Penalise recently done
+    if (recentDoneIds.has(a.id)) weight *= 0.15;
+
+    // Penalise recently suggested
+    if (recentSuggestedIds.has(a.id)) weight *= 0.3;
+
+    // Boost weak pillars
+    if (pillarScores[a.pillar] != null) {
+      const diff = pillarScores[a.pillar] - minPillarScore;
+      if (diff < 2) weight *= 1.8;       // weakest pillar
+      else if (diff < 5) weight *= 1.3;  // below average
+    }
+
+    // Boost never-done activities
+    if (!lifetimeCounts[a.id]) weight *= 1.5;
+
+    // Add randomness (seeded by date for reproducibility)
+    const seed = hashStr(todayStr + a.id);
+    weight *= 0.5 + (seed % 1000) / 1000; // 0.5-1.5x random factor
+
+    return { ...a, weight };
+  });
+
+  // Sort by weight descending, then pick 3 from different pillars
+  scored.sort((a, b) => b.weight - a.weight);
+
+  const picks = [];
+  const usedPillars = {};
+  for (const a of scored) {
+    if (picks.length >= 3) break;
+    // Max 2 from same pillar
+    if ((usedPillars[a.pillar] || 0) >= 2) continue;
+    picks.push(a);
+    usedPillars[a.pillar] = (usedPillars[a.pillar] || 0) + 1;
+  }
+
+  // Build quest object
+  const quest = {
+    date: todayStr,
+    items: picks.map(a => ({
+      id: a.id,
+      pillar: a.pillar,
+      pillarName: PILLAR_NAMES[a.pillar],
+      idx: a.idx,
+      label: a.label,
+      done: false,
+    })),
+  };
+
+  // Save quest
+  await chrome.storage.local.set({ [QUEST_KEY]: quest });
+
+  // Update quest history (keep last 14 days)
+  questHistory.push({ date: todayStr, ids: picks.map(a => a.id) });
+  if (questHistory.length > 14) questHistory.splice(0, questHistory.length - 14);
+  await chrome.storage.local.set({ [QUEST_HIST_KEY]: questHistory });
+
+  // Calculate streak
+  const streak = await getActivityStreak();
+
+  // Push notification
+  if (sendNotification) {
+    try {
+      const actList = quest.items.map(i => `\u2022 ${i.label}`).join('\n');
+      chrome.notifications.create('dailyQuest', {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: streak > 1 ? `\uD83D\uDD25 ${streak}-day streak! Today's Quest` : "\uD83C\uDFAF Today's Quest",
+        message: actList,
+        priority: 2,
+      });
+    } catch (e) {
+      console.log('[SocialEdge] Notification error:', e);
+    }
+  }
+
+  console.log('[SocialEdge] Daily quest generated:', quest.items.map(i => i.label));
+  return quest;
+}
+
+// Simple string hash for deterministic randomness
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+// Calculate activity streak (consecutive days with at least 1 activity done)
+async function getActivityStreak() {
+  const stored = await chrome.storage.local.get([ACT_KEY_BG]);
+  const acts = stored[ACT_KEY_BG] || {};
+  let streak = 0;
+  const d = new Date();
+  // Start from yesterday (today is in progress)
+  d.setDate(d.getDate() - 1);
+  for (let i = 0; i < 365; i++) {
+    const dateStr = d.toISOString().split('T')[0];
+    const dayActs = acts[dateStr];
+    if (dayActs && Object.values(dayActs).some(arr => arr.some(Boolean))) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  // If today also has activity, count it too
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayActs = acts[todayStr];
+  if (todayActs && Object.values(todayActs).some(arr => arr.some(Boolean))) {
+    streak++;
+  }
+  return streak;
+}
+
+// Click handler for the notification
+chrome.notifications.onClicked.addListener((notifId) => {
+  if (notifId === 'dailyQuest') {
+    // Open side panel
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) chrome.sidePanel.open({ windowId: tabs[0].windowId });
+    });
+    chrome.notifications.clear('dailyQuest');
+  }
 });
 
 // ── Active analytics replay (same pattern as SSI replay) ──────────────────────
@@ -655,6 +928,37 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg.action === 'fetchAnalytics') {
     replayAnalytics().then(sendResponse);
+    return true;
+  }
+  if (msg.action === 'getDailyQuest') {
+    generateDailyQuest(false).then(sendResponse);
+    return true;
+  }
+  if (msg.action === 'updateQuestItem') {
+    // Toggle a quest item done/undone
+    chrome.storage.local.get([QUEST_KEY], (r) => {
+      const quest = r[QUEST_KEY];
+      if (!quest) return sendResponse(null);
+      const item = quest.items.find(i => i.id === msg.itemId);
+      if (item) item.done = msg.done;
+      chrome.storage.local.set({ [QUEST_KEY]: quest }, () => sendResponse(quest));
+    });
+    return true;
+  }
+  if (msg.action === 'getStreak') {
+    getActivityStreak().then(sendResponse);
+    return true;
+  }
+  if (msg.action === 'dismissQuest') {
+    chrome.storage.local.get([QUEST_KEY], (r) => {
+      const quest = r[QUEST_KEY];
+      if (quest) {
+        quest.dismissed = true;
+        chrome.storage.local.set({ [QUEST_KEY]: quest }, () => sendResponse(quest));
+      } else {
+        sendResponse(null);
+      }
+    });
     return true;
   }
 });

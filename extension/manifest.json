@@ -11,11 +11,18 @@
     "alarms",
     "scripting",
     "tabs",
-    "sidePanel"
+    "sidePanel",
+    "identity",
+    "notifications"
   ],
   "host_permissions": [
     "*://*.linkedin.com/*"
   ],
+
+  "oauth2": {
+    "client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": ["openid", "email", "profile"]
+  },
 
   "background": {
     "service_worker": "background.js"

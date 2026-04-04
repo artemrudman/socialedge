@@ -544,6 +544,147 @@ async function loadAndRender() {
 }
 loadAndRender();
 
+// ── Daily Quest (screen-based) ──────────────────────────────────────────────────
+const questScreen = $("quest-screen");
+const QUEST_SEEN_KEY = "_se_questSeen";
+let _currentQuest = null;
+
+const QUEST_CHECK_ICON = `<svg class="dq-check-svg" width="13" height="13" viewBox="0 0 14 14" fill="none">
+  <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="#0C0C10" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
+function renderQuest(quest) {
+  _currentQuest = quest;
+  const itemsEl = $("dq-items");
+  const doneEl = $("dq-done");
+
+  if (!quest || !quest.items?.length) return;
+
+  const doneCount = quest.items.filter(i => i.done).length;
+  const total = quest.items.length;
+  const allDone = doneCount === total;
+
+  // Progress
+  $("dq-progress-fill").style.width = `${(doneCount / total) * 100}%`;
+  $("dq-progress-label").textContent = allDone
+    ? "All done — you're on fire!"
+    : `${doneCount} / ${total} completed`;
+
+  // Items
+  itemsEl.innerHTML = quest.items.map(item => `
+    <div class="dq-item ${item.done ? 'done' : ''}" data-quest-id="${item.id}">
+      <div class="dq-check">${QUEST_CHECK_ICON}</div>
+      <div class="dq-item-text">
+        <div class="dq-item-label">${item.label}</div>
+        <div class="dq-item-pillar">${item.pillarName}</div>
+      </div>
+    </div>
+  `).join("");
+
+  // Done banner
+  if (allDone) {
+    doneEl.classList.remove("hidden");
+  } else {
+    doneEl.classList.add("hidden");
+  }
+
+  // Click handlers
+  itemsEl.querySelectorAll(".dq-item").forEach(el => {
+    el.addEventListener("click", () => {
+      const id = el.dataset.questId;
+      const item = quest.items.find(i => i.id === id);
+      if (!item) return;
+      item.done = !item.done;
+
+      // Sync to dailyActivities
+      const [pillar, idxStr] = id.split(":");
+      syncQuestToActivities(pillar, parseInt(idxStr, 10), item.done);
+
+      // Persist quest state
+      chrome.runtime.sendMessage({
+        action: "updateQuestItem",
+        itemId: id,
+        done: item.done,
+      });
+
+      renderQuest(quest);
+      // Refresh streak after toggling
+      chrome.runtime.sendMessage({ action: "getStreak" }, (s) => updateStreak(s || 0));
+    });
+  });
+}
+
+async function syncQuestToActivities(pillarKey, idx, done) {
+  const all = await loadActivities();
+  const todayStr = today();
+  if (!all[todayStr]) all[todayStr] = {};
+  if (!all[todayStr][pillarKey]) {
+    const itemCount = ACTIVITIES[pillarKey]?.items.length || 10;
+    all[todayStr][pillarKey] = new Array(itemCount).fill(false);
+  }
+  all[todayStr][pillarKey][idx] = done;
+  await new Promise(res =>
+    chrome.storage.local.set({ [ACT_KEY]: all }, res),
+  );
+  allActivities = all;
+}
+
+function updateStreak(streak) {
+  const el = $("dq-streak");
+  const countEl = $("dq-streak-count");
+  if (streak > 0) {
+    el.classList.remove("hidden");
+    countEl.textContent = streak;
+  } else {
+    el.classList.add("hidden");
+  }
+}
+
+function updateQuestDot(quest) {
+  const dot = $("quest-trigger-dot");
+  if (!quest || !quest.items?.length) { dot.classList.remove("active"); return; }
+  // Show dot if quest hasn't been opened/seen today
+  chrome.storage.local.get([QUEST_SEEN_KEY], (r) => {
+    const seen = r[QUEST_SEEN_KEY];
+    if (seen === quest.date) {
+      dot.classList.remove("active");
+    } else {
+      dot.classList.add("active");
+    }
+  });
+}
+
+// Open quest screen
+$("quest-trigger").addEventListener("click", () => {
+  questScreen.classList.add("open");
+  // Mark as seen — hide dot
+  if (_currentQuest?.date) {
+    chrome.storage.local.set({ [QUEST_SEEN_KEY]: _currentQuest.date });
+    $("quest-trigger-dot").classList.remove("active");
+  }
+});
+$("quest-back-btn").addEventListener("click", () => {
+  questScreen.classList.remove("open");
+});
+
+// Load quest on popup open
+chrome.runtime.sendMessage({ action: "getDailyQuest" }, (quest) => {
+  renderQuest(quest);
+  updateQuestDot(quest);
+});
+chrome.runtime.sendMessage({ action: "getStreak" }, (streak) => {
+  updateStreak(streak || 0);
+});
+
+// Live-refresh quest when items change
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes._se_dailyQuest) {
+    const q = changes._se_dailyQuest.newValue;
+    renderQuest(q);
+    updateQuestDot(q);
+  }
+});
+
 // Live refresh when background stores new SSI data
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.ssiHistory) {
@@ -642,7 +783,9 @@ function computeForecast(data) {
     <span class="legend-item">
       <span class="legend-line-solid"></span>Overall Score
     </span>
-      <span class="legend-pro-badge">🔒 Pro</span>
+    <span class="legend-item">
+      <span class="legend-line-dashed"></span>3-Month Forecast
+      <span class="legend-pro-badge">🔒Pro</span>
     </span>`;
 })();
 
@@ -1439,3 +1582,198 @@ $("brand-btn").addEventListener("click", () =>
 $("support-back-btn").addEventListener("click", () =>
   supportScreen.classList.remove("open"),
 );
+
+// ── Auth / Account screen ────────────────────────────────────────────────────
+const authScreen = $("auth-screen");
+const authForms = $("auth-forms");
+const authAccount = $("auth-account");
+const loginForm = $("login-form");
+const registerForm = $("register-form");
+const tabLogin = $("tab-login");
+const tabRegister = $("tab-register");
+const userBtn = $("user-btn");
+
+function getInitials(name) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
+function updateAuthUI() {
+  const user = Auth.getUser();
+  const loggedIn = Auth.isLoggedIn();
+  const pro = Auth.isPro();
+
+  // Update header user button
+  userBtn.classList.toggle("logged-in", loggedIn);
+  userBtn.classList.toggle("is-pro", pro);
+  const initialsEl = $("user-btn-initials");
+  if (loggedIn && user) {
+    initialsEl.textContent = getInitials(user.name);
+    initialsEl.classList.remove("hidden");
+  } else {
+    initialsEl.classList.add("hidden");
+  }
+
+  // Toggle forms vs account view
+  if (loggedIn && user) {
+    authForms.classList.add("hidden");
+    authAccount.classList.remove("hidden");
+    $("auth-screen-title").textContent = "Account";
+
+    // Populate account info
+    $("auth-avatar").textContent = getInitials(user.name);
+    $("auth-avatar").classList.toggle("pro", pro);
+    $("auth-user-name").textContent = user.name;
+    $("auth-user-email").textContent = user.email;
+
+    // Avatar image (from Google)
+    const avatarImg = $("auth-avatar-img");
+    if (user.avatarUrl) {
+      avatarImg.src = user.avatarUrl;
+      avatarImg.classList.remove("hidden");
+      avatarImg.classList.toggle("pro", pro);
+    } else {
+      avatarImg.classList.add("hidden");
+    }
+
+    // Google connected badge
+    const googleBadge = $("auth-google-linked");
+    if (user.googleLinked) {
+      googleBadge.classList.remove("hidden");
+    } else {
+      googleBadge.classList.add("hidden");
+    }
+
+    const badge = $("auth-plan-badge");
+    badge.textContent = pro ? "Pro" : "Free";
+    badge.className = `auth-plan-badge ${pro ? "pro" : "free"}`;
+  } else {
+    authForms.classList.remove("hidden");
+    authAccount.classList.add("hidden");
+    $("auth-screen-title").textContent = "Account";
+    // Reset error states
+    $("login-error").classList.add("hidden");
+    $("register-error").classList.add("hidden");
+    $("auth-google-error").classList.add("hidden");
+  }
+}
+
+// Open / close auth screen
+userBtn.addEventListener("click", () => {
+  updateAuthUI();
+  authScreen.classList.add("open");
+});
+$("auth-back-btn").addEventListener("click", () => {
+  authScreen.classList.remove("open");
+});
+
+// Tab switching
+tabLogin.addEventListener("click", () => {
+  tabLogin.classList.add("active");
+  tabRegister.classList.remove("active");
+  loginForm.classList.remove("hidden");
+  registerForm.classList.add("hidden");
+  $("login-error").classList.add("hidden");
+});
+tabRegister.addEventListener("click", () => {
+  tabRegister.classList.add("active");
+  tabLogin.classList.remove("active");
+  registerForm.classList.remove("hidden");
+  loginForm.classList.add("hidden");
+  $("register-error").classList.add("hidden");
+});
+
+// Login form submit
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = $("login-email").value.trim();
+  const password = $("login-password").value;
+  const errEl = $("login-error");
+  const submitBtn = loginForm.querySelector(".auth-submit");
+
+  errEl.classList.add("hidden");
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Signing in\u2026";
+
+  try {
+    await Auth.login(email, password);
+    loginForm.reset();
+    updateAuthUI();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Sign In";
+  }
+});
+
+// Register form submit
+registerForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("register-name").value.trim();
+  const email = $("register-email").value.trim();
+  const password = $("register-password").value;
+  const errEl = $("register-error");
+  const submitBtn = registerForm.querySelector(".auth-submit");
+
+  errEl.classList.add("hidden");
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Creating account\u2026";
+
+  try {
+    await Auth.register(name, email, password);
+    registerForm.reset();
+    updateAuthUI();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Create Account";
+  }
+});
+
+// Google Sign-In
+$("auth-google-btn").addEventListener("click", async () => {
+  const btn = $("auth-google-btn");
+  const errEl = $("auth-google-error");
+  errEl.classList.add("hidden");
+  btn.disabled = true;
+  btn.querySelector(".google-icon").style.display = "none";
+  const origText = btn.textContent;
+  btn.innerHTML = `<span class="btn-spinner"></span> Signing in\u2026`;
+
+  try {
+    await Auth.loginWithGoogle();
+    updateAuthUI();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg class="google-icon" width="16" height="16" viewBox="0 0 48 48">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+      <path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/>
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+    </svg> Continue with Google`;
+  }
+});
+
+// Skip / continue without account
+$("auth-skip").addEventListener("click", () => {
+  authScreen.classList.remove("open");
+});
+
+// Logout
+$("auth-logout-btn").addEventListener("click", async () => {
+  await Auth.logout();
+  updateAuthUI();
+  authScreen.classList.remove("open");
+});
+
+// Init auth on load
+Auth.init().then(() => updateAuthUI());
