@@ -1777,3 +1777,175 @@ $("auth-logout-btn").addEventListener("click", async () => {
 
 // Init auth on load
 Auth.init().then(() => updateAuthUI());
+
+// ── Onboarding Walkthrough ──────────────────────────────────────────────────────
+const OB_KEY = "_se_onboardDone";
+
+const OB_STEPS = [
+  {
+    target: ".hero",
+    title: "Your Overall Score",
+    desc: "This is your LinkedIn Social Selling Index \u2014 a single number (0\u2013100) that shows how effectively you're building your brand, finding the right people, and engaging on LinkedIn. It updates automatically every day.",
+    pos: "below",
+  },
+  {
+    target: ".pillars-grid",
+    title: "Score by Topics & Activity",
+    desc: "Your score breaks down into four pillars \u2014 Professional Brand, Find Right People, Insight Engagement, and Strong Relationships. Tap any pillar to see daily activities you can complete to boost it.",
+    pos: "below",
+  },
+  {
+    target: "#quest-trigger",
+    title: "Daily Quest",
+    desc: "Every day we pick 3 personalised activities just for you, focusing on your weakest areas. Complete them to build a streak! The orange dot means you have a new quest waiting.",
+    pos: "below",
+  },
+  {
+    target: ".benchmarks",
+    title: "Top Scores & Benchmarks",
+    desc: "See how you stack up against your industry and your network. Track your percentile ranking and watch it improve over time.",
+    pos: "below",
+  },
+  {
+    target: "#btn-history",
+    title: "Score History",
+    desc: "View your full score history with trends, a visual chart, and 30/60/90-day forecasts. Every data point is saved automatically.",
+    pos: "above",
+  },
+  {
+    target: "#btn-analytics",
+    title: "LinkedIn Analytics",
+    desc: "Track your profile views, followers, connections, search appearances, and post impressions \u2014 all captured directly from your LinkedIn profile.",
+    pos: "above",
+  },
+  {
+    target: ".boost-link",
+    title: "Free Boost Strategy",
+    desc: "Download our free PDF guide with proven strategies and daily routines to grow your Social Selling Score faster. One click and it's yours!",
+    pos: "below",
+  },
+];
+
+let obStep = 0;
+
+function startOnboarding() {
+  obStep = 0;
+  $("ob-overlay").classList.remove("hidden");
+  renderObStep();
+}
+
+function endOnboarding() {
+  $("ob-overlay").classList.add("hidden");
+  chrome.storage.local.set({ [OB_KEY]: true });
+}
+
+function renderObStep() {
+  if (obStep >= OB_STEPS.length) {
+    endOnboarding();
+    return;
+  }
+
+  const step = OB_STEPS[obStep];
+  const targetEl = document.querySelector(step.target);
+
+  // Scroll target into view if needed
+  if (targetEl) {
+    targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  // Wait a tick for scroll to settle, then position
+  requestAnimationFrame(() => {
+    positionSpotlight(targetEl, step);
+    renderObTooltip(step);
+  });
+}
+
+function positionSpotlight(el, step) {
+  const spotlight = $("ob-spotlight");
+  const backdrop = $("ob-backdrop");
+
+  if (!el) {
+    spotlight.style.display = "none";
+    backdrop.style.opacity = "1";
+    return;
+  }
+
+  spotlight.style.display = "block";
+  backdrop.style.opacity = "0"; // backdrop is replaced by spotlight box-shadow
+
+  const rect = el.getBoundingClientRect();
+  const pad = 6;
+  spotlight.style.top = (rect.top - pad) + "px";
+  spotlight.style.left = (rect.left - pad) + "px";
+  spotlight.style.width = (rect.width + pad * 2) + "px";
+  spotlight.style.height = (rect.height + pad * 2) + "px";
+}
+
+function renderObTooltip(step) {
+  const tooltip = $("ob-tooltip");
+  const targetEl = document.querySelector(step.target);
+
+  // Title & desc
+  $("ob-title").textContent = step.title;
+  $("ob-desc").textContent = step.desc;
+
+  // Step dots
+  const dotsHTML = OB_STEPS.map((_, i) => {
+    let cls = "ob-dot";
+    if (i === obStep) cls += " active";
+    else if (i < obStep) cls += " done";
+    return `<span class="${cls}"></span>`;
+  }).join("");
+  $("ob-step-indicator").innerHTML = dotsHTML;
+
+  // Button labels
+  const isLast = obStep === OB_STEPS.length - 1;
+  $("ob-next").textContent = isLast ? "Get Started" : "Next";
+  $("ob-skip").textContent = obStep === 0 ? "Skip" : "Skip";
+
+  // Position tooltip above or below target
+  const rect = targetEl?.getBoundingClientRect();
+  // Reset animation
+  tooltip.style.animation = "none";
+  void tooltip.offsetWidth;
+  tooltip.style.animation = "";
+
+  if (rect) {
+    if (step.pos === "above") {
+      tooltip.style.bottom = "auto";
+      tooltip.style.top = Math.max(8, rect.top - tooltip.offsetHeight - 16) + "px";
+    } else {
+      tooltip.style.top = (rect.bottom + 16) + "px";
+      tooltip.style.bottom = "auto";
+    }
+  }
+
+  // If tooltip goes off-screen, clamp it
+  requestAnimationFrame(() => {
+    const tRect = tooltip.getBoundingClientRect();
+    const vh = window.innerHeight;
+    if (tRect.bottom > vh - 8) {
+      tooltip.style.top = Math.max(8, vh - tRect.height - 8) + "px";
+    }
+    if (tRect.top < 8) {
+      tooltip.style.top = "8px";
+    }
+  });
+}
+
+// Button handlers
+$("ob-next").addEventListener("click", () => {
+  obStep++;
+  renderObStep();
+});
+$("ob-skip").addEventListener("click", () => {
+  endOnboarding();
+});
+
+// Launch on first install
+chrome.storage.local.get([OB_KEY], (r) => {
+  if (!r[OB_KEY]) {
+    // Short delay so the UI renders first
+    setTimeout(startOnboarding, 600);
+  }
+});

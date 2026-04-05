@@ -1878,3 +1878,137 @@ button:disabled { opacity: .4; pointer-events: none; }
 }
 .auth-logout-btn:hover { opacity: .8; }
 .auth-logout-btn:active { transform: scale(.97); }
+
+/* ── Onboarding walkthrough ────────────────────────────────────────────── */
+.ob-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: auto;
+}
+.ob-overlay.hidden { display: none; }
+
+/* Dark backdrop with a cutout hole (box-shadow trick) */
+.ob-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.65);
+  transition: opacity .3s;
+}
+
+/* Spotlight rectangle: positioned over the target element */
+.ob-spotlight {
+  position: fixed;
+  border-radius: 12px;
+  box-shadow: 0 0 0 4000px rgba(0,0,0,.62);
+  border: 2px solid var(--green);
+  transition: all .35s cubic-bezier(.4,0,.2,1);
+  pointer-events: none;
+  z-index: 9001;
+}
+.ob-spotlight::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 14px;
+  border: 2px solid rgba(52,211,153,.3);
+  animation: ob-glow 2s ease-in-out infinite;
+}
+@keyframes ob-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(52,211,153,.2); }
+  50%      { box-shadow: 0 0 20px rgba(52,211,153,.35); }
+}
+
+/* Tooltip card */
+.ob-tooltip {
+  position: fixed;
+  width: calc(100% - 36px);
+  max-width: 320px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 18px 14px;
+  z-index: 9002;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  animation: ob-tooltip-in .3s ease-out both;
+}
+@keyframes ob-tooltip-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Step indicator (dots) */
+.ob-step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.ob-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: all .3s;
+}
+.ob-dot.active {
+  background: var(--green);
+  width: 20px;
+  border-radius: 10px;
+}
+.ob-dot.done {
+  background: rgba(52,211,153,.4);
+}
+
+/* Title & description */
+.ob-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -.2px;
+}
+.ob-desc {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+
+/* Footer buttons */
+.ob-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ob-skip {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  color: var(--text-3);
+  background: none;
+  border: none;
+  padding: 6px 2px;
+  cursor: pointer;
+  transition: color .15s;
+}
+.ob-skip:hover { color: var(--text-2); }
+.ob-skip:active { transform: none; }
+
+.ob-next {
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: var(--font);
+  color: #08110e;
+  background: var(--green);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: opacity .15s, transform .1s;
+}
+.ob-next:hover { opacity: .88; }
+.ob-next:active { transform: scale(.95); }
