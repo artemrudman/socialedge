@@ -408,9 +408,29 @@ async function generateDailyQuest(sendNotification = false) {
     }
   }
 
+  updateQuestBadge(quest);
+
   console.log('[SocialEdge] Daily quest generated:', quest.items.map(i => i.label));
   return quest;
 }
+
+// Update extension icon badge with remaining quest tasks
+function updateQuestBadge(quest) {
+  if (!quest?.items?.length) {
+    chrome.action.setBadgeText({ text: '' });
+    return;
+  }
+  const remaining = quest.items.filter(i => !i.done).length;
+  if (remaining === 0) {
+    chrome.action.setBadgeText({ text: '' });
+  } else {
+    chrome.action.setBadgeText({ text: String(remaining) });
+    chrome.action.setBadgeBackgroundColor({ color: '#f97316' });
+  }
+}
+
+// Restore badge on service worker wake
+chrome.storage.local.get([QUEST_KEY], (r) => updateQuestBadge(r[QUEST_KEY]));
 
 // Simple string hash for deterministic randomness
 function hashStr(s) {
@@ -948,7 +968,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (!quest) return sendResponse(null);
       const item = quest.items.find(i => i.id === msg.itemId);
       if (item) item.done = msg.done;
-      chrome.storage.local.set({ [QUEST_KEY]: quest }, () => sendResponse(quest));
+      chrome.storage.local.set({ [QUEST_KEY]: quest }, () => {
+        updateQuestBadge(quest);
+        sendResponse(quest);
+      });
     });
     return true;
   }

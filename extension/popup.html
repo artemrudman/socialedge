@@ -7,6 +7,10 @@
   <link rel="stylesheet" href="popup.css"/>
 </head>
 <body>
+<div class="dash" id="dash">
+
+  <!-- ── Left column (narrow: full page, wide: left panel) ──── -->
+  <div class="dash-left">
 
   <!-- ── Header ───────────────────────────────────────────────── -->
   <header class="header">
@@ -236,6 +240,69 @@
     </div>
   </button>
 
+  </div><!-- /.dash-left -->
+
+  <!-- ── Right column (narrow: sliding overlays, wide: inline panels) ── -->
+  <div class="dash-right">
+
+  <!-- ── Quest screen (slides from right) ──────────────────────────────── -->
+  <div class="quest-screen" id="quest-screen">
+    <header class="detail-header">
+      <button class="back-btn" id="quest-back-btn" aria-label="Back">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+      <span class="quest-screen-title">Today's Tasks</span>
+      <span class="dq-streak hidden" id="dq-streak" title="Activity streak">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+          <path d="M8 1c0 2.5-2 4-2 6a3.5 3.5 0 0 0 3 3.46c-.56-.44-.92-1.12-.92-1.96 0-1.4 1.92-2.5 1.92-4.5 0 0 2 2 2 5a5 5 0 1 1-9-3C3 3.5 5.5 1.5 8 1z"
+            fill="currentColor"/>
+        </svg>
+        <span id="dq-streak-count">0</span>
+      </span>
+    </header>
+    <div class="quest-body">
+      <!-- Flame hero -->
+      <div class="dq-hero">
+        <div class="dq-flame-big">
+          <svg width="44" height="44" viewBox="0 0 16 16" fill="none">
+            <path d="M8 1c0 2.5-2 4-2 6a3.5 3.5 0 0 0 3 3.46c-.56-.44-.92-1.12-.92-1.96 0-1.4 1.92-2.5 1.92-4.5 0 0 2 2 2 5a5 5 0 1 1-9-3C3 3.5 5.5 1.5 8 1z"
+              fill="url(#flame-grad-big)"/>
+            <defs>
+              <linearGradient id="flame-grad-big" x1="8" y1="1" x2="8" y2="14" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#FBBF24"/><stop offset="1" stop-color="#F97316"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="dq-hero-text">Complete today's activities to keep your streak alive!</div>
+      </div>
+
+      <!-- Progress -->
+      <div class="dq-progress-section">
+        <div class="dq-progress-track">
+          <div class="dq-progress-fill" id="dq-progress-fill"></div>
+        </div>
+        <div class="dq-progress-label" id="dq-progress-label">0 / 3 completed</div>
+      </div>
+
+      <!-- Items -->
+      <div class="dq-items" id="dq-items"></div>
+
+      <!-- Done banner -->
+      <div class="dq-done hidden" id="dq-done">
+        <svg width="24" height="24" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="9" fill="var(--green-dim)" stroke="var(--green)" stroke-width="1.5"/>
+          <path d="M6 10.5l2.5 2.5L14 7.5" stroke="var(--green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Quest complete! Great work today.</span>
+      </div>
+    </div>
+  </div>
+
   <!-- ── History full screen (slides up from bottom) ──────────────── -->
   <div class="history-screen" id="history-screen">
     <header class="history-screen-header">
@@ -333,63 +400,8 @@
     </div>
   </div>
 
-  <!-- ── Quest screen (slides from right) ──────────────────────────────── -->
-  <div class="quest-screen" id="quest-screen">
-    <header class="detail-header">
-      <button class="back-btn" id="quest-back-btn" aria-label="Back">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Back
-      </button>
-      <span class="quest-screen-title">Today's Tasks</span>
-      <span class="dq-streak hidden" id="dq-streak" title="Activity streak">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-          <path d="M8 1c0 2.5-2 4-2 6a3.5 3.5 0 0 0 3 3.46c-.56-.44-.92-1.12-.92-1.96 0-1.4 1.92-2.5 1.92-4.5 0 0 2 2 2 5a5 5 0 1 1-9-3C3 3.5 5.5 1.5 8 1z"
-            fill="currentColor"/>
-        </svg>
-        <span id="dq-streak-count">0</span>
-      </span>
-    </header>
-    <div class="quest-body">
-      <!-- Flame hero -->
-      <div class="dq-hero">
-        <div class="dq-flame-big">
-          <svg width="44" height="44" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1c0 2.5-2 4-2 6a3.5 3.5 0 0 0 3 3.46c-.56-.44-.92-1.12-.92-1.96 0-1.4 1.92-2.5 1.92-4.5 0 0 2 2 2 5a5 5 0 1 1-9-3C3 3.5 5.5 1.5 8 1z"
-              fill="url(#flame-grad-big)"/>
-            <defs>
-              <linearGradient id="flame-grad-big" x1="8" y1="1" x2="8" y2="14" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#FBBF24"/><stop offset="1" stop-color="#F97316"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-        <div class="dq-hero-text">Complete today's activities to keep your streak alive!</div>
-      </div>
-
-      <!-- Progress -->
-      <div class="dq-progress-section">
-        <div class="dq-progress-track">
-          <div class="dq-progress-fill" id="dq-progress-fill"></div>
-        </div>
-        <div class="dq-progress-label" id="dq-progress-label">0 / 3 completed</div>
-      </div>
-
-      <!-- Items -->
-      <div class="dq-items" id="dq-items"></div>
-
-      <!-- Done banner -->
-      <div class="dq-done hidden" id="dq-done">
-        <svg width="24" height="24" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="9" fill="var(--green-dim)" stroke="var(--green)" stroke-width="1.5"/>
-          <path d="M6 10.5l2.5 2.5L14 7.5" stroke="var(--green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span>Quest complete! Great work today.</span>
-      </div>
-    </div>
-  </div>
+  </div><!-- /.dash-right -->
+</div><!-- /.dash -->
 
   <!-- ── Auth / Account screen (slides from right) ─────────────────────── -->
   <!-- <div class="auth-screen" id="auth-screen">

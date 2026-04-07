@@ -2027,3 +2027,84 @@ button:disabled { opacity: .4; pointer-events: none; }
 }
 .ob-next:hover { opacity: .88; }
 .ob-next:active { transform: scale(.95); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Wide dashboard layout — 2 columns when window ≥ 700 px
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 700px) {
+
+  /* Grid shell */
+  .dash {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: 100vh;
+  }
+  .dash-left {
+    overflow-y: auto;
+    height: 100vh;
+    border-right: 1px solid var(--border);
+  }
+  .dash-right {
+    overflow-y: auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Turn slide-in screens into inline panels ─────────────── */
+  .dash-right .quest-screen,
+  .dash-right .history-screen,
+  .dash-right .analytics-screen {
+    position: static;
+    transform: none;
+    z-index: auto;
+    transition: none;
+    border-bottom: 1px solid var(--border);
+    overflow: visible;
+    flex-shrink: 0;
+  }
+  /* Override .open styles — always visible */
+  .dash-right .quest-screen.open,
+  .dash-right .history-screen.open,
+  .dash-right .analytics-screen.open {
+    transform: none;
+  }
+
+  /* History screen needs flex column for its body to scroll within */
+  .dash-right .history-screen {
+    overflow: hidden;
+    flex: 1;
+    min-height: 300px;
+  }
+
+  /* Hide back buttons & screen titles that are redundant in wide mode */
+  .dash-right .quest-screen > .detail-header > .back-btn,
+  .dash-right .history-screen > .history-screen-header > .back-btn,
+  .dash-right .analytics-screen > .detail-header > .back-btn {
+    visibility: hidden;
+    width: 0;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Hide narrow-mode triggers since panels are always visible */
+  .history-trigger { display: none; }
+  #btn-analytics  { display: none; }
+
+  /* Quest trigger stays (it's in the hero) but remove the click-to-open behaviour via CSS only —
+     the JS still toggles .open which is harmless since the screen is always static */
+
+  /* Compact quest: shrink the hero flame section */
+  .dash-right .dq-hero { padding: 12px 16px; }
+  .dash-right .dq-flame-big svg { width: 28px; height: 28px; }
+  .dash-right .dq-hero-text { font-size: 12px; }
+
+  /* Act-detail screen stays absolute within history-screen — no change needed */
+
+  /* Analytics body gets full height */
+  .dash-right .analytics-body {
+    overflow-y: auto;
+    max-height: none;
+  }
+}

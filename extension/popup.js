@@ -555,6 +555,20 @@ async function loadAndRender() {
 }
 loadAndRender();
 
+// ── Wide dashboard mode — auto-open panels when viewport ≥ 700px ────────────────
+function isWideMode() { return window.innerWidth >= 700; }
+
+function applyWideMode() {
+  if (isWideMode()) {
+    $("quest-screen").classList.add("open");
+    $("history-screen").classList.add("open");
+    $("analytics-screen").classList.add("open");
+    loadAnalytics();
+  }
+}
+applyWideMode();
+window.addEventListener("resize", applyWideMode);
+
 // ── Daily Quest (screen-based) ──────────────────────────────────────────────────
 const questScreen = $("quest-screen");
 const QUEST_SEEN_KEY = "_se_questSeen";
