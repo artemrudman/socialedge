@@ -196,54 +196,57 @@ const ACT_KEY_BG     = 'dailyActivities';     // same key popup uses
 
 const ALL_ACTIVITIES = {
   prof_brand: [
-    "Published an original post",
-    "Published a long-form article",
-    "Updated a profile section",
-    "Requested a skill endorsement",
-    "Gave a skill endorsement to a connection",
-    "Shared industry content with personal commentary",
-    "Refreshed profile photo or banner",
-    "Added a quantified achievement to experience",
-    "Added or updated featured section",
-    "Completed a LinkedIn learning course",
+    { label: "Published an original post", difficulty: 2 },
+    { label: "Published a long-form article", difficulty: 3 },
+    { label: "Updated a profile section", difficulty: 2 },
+    { label: "Requested a skill endorsement", difficulty: 1 },
+    { label: "Gave a skill endorsement to a connection", difficulty: 1 },
+    { label: "Shared industry content with personal commentary", difficulty: 2 },
+    { label: "Refreshed profile photo or banner", difficulty: 3 },
+    { label: "Added a quantified achievement to experience", difficulty: 2 },
+    { label: "Added or updated featured section", difficulty: 3 },
+    { label: "Completed a LinkedIn learning course", difficulty: 3 },
   ],
   find_right_people: [
-    "Used advanced search filters to find prospects",
-    "Saved 5+ new leads",
-    "Saved a new account",
-    'Reviewed "People Also Viewed" suggestions',
-    "Used TeamLink to find a warm introduction",
-    "Browsed recommended accounts",
-    "Ran a boolean search query",
-    "Filtered by job change in the past 90 days",
-    "Searched within a specific account",
-    "Reviewed lead recommendations from Sales Navigator",
+    { label: "Used advanced search filters to find prospects", difficulty: 1 },
+    { label: "Saved 5+ new leads", difficulty: 1 },
+    { label: "Saved a new account", difficulty: 1 },
+    { label: 'Reviewed "People Also Viewed" suggestions', difficulty: 1 },
+    { label: "Used TeamLink to find a warm introduction", difficulty: 2 },
+    { label: "Browsed recommended accounts", difficulty: 1 },
+    { label: "Ran a boolean search query", difficulty: 2 },
+    { label: "Filtered by job change in the past 90 days", difficulty: 1 },
+    { label: "Searched within a specific account", difficulty: 1 },
+    { label: "Reviewed lead recommendations from Sales Navigator", difficulty: 1 },
   ],
   insight_engagement: [
-    "Left a thoughtful comment on a lead's post",
-    "Shared content with personal insight added",
-    "Engaged with a target account's content",
-    "Created a poll",
-    "Responded to a poll",
-    "Sent a relevant article to a prospect",
-    "Liked a post from a saved lead",
-    "Reposted with added perspective",
-    "Replied to a comment on my own post",
-    "Tagged a connection in a relevant post",
+    { label: "Left a thoughtful comment on a lead's post", difficulty: 1 },
+    { label: "Shared content with personal insight added", difficulty: 2 },
+    { label: "Engaged with a target account's content", difficulty: 1 },
+    { label: "Created a poll", difficulty: 3 },
+    { label: "Responded to a poll", difficulty: 1 },
+    { label: "Sent a relevant article to a prospect", difficulty: 2 },
+    { label: "Liked a post from a saved lead", difficulty: 1 },
+    { label: "Reposted with added perspective", difficulty: 2 },
+    { label: "Replied to a comment on my own post", difficulty: 1 },
+    { label: "Tagged a connection in a relevant post", difficulty: 1 },
   ],
   relationship: [
-    "Sent a personalized InMail",
-    "Followed up with a new connection",
-    "Congratulated a lead on a job change",
-    "Congratulated a lead on a work anniversary",
-    "Reconnected with a dormant contact",
-    "Responded to a message within 24 hours",
-    "Sent a voice note to a prospect",
-    "Accepted a connection request with a personal reply",
-    "Introduced two connections to each other",
-    "Scheduled a call or meeting with a lead",
+    { label: "Sent a personalized InMail", difficulty: 2 },
+    { label: "Followed up with a new connection", difficulty: 1 },
+    { label: "Congratulated a lead on a job change", difficulty: 1 },
+    { label: "Congratulated a lead on a work anniversary", difficulty: 1 },
+    { label: "Reconnected with a dormant contact", difficulty: 2 },
+    { label: "Responded to a message within 24 hours", difficulty: 1 },
+    { label: "Sent a voice note to a prospect", difficulty: 2 },
+    { label: "Accepted a connection request with a personal reply", difficulty: 1 },
+    { label: "Introduced two connections to each other", difficulty: 3 },
+    { label: "Scheduled a call or meeting with a lead", difficulty: 3 },
   ],
 };
+
+// Difficulty → frequency weight: easy=daily, medium=~2x/week, hard=~2-3x/month
+const DIFFICULTY_WEIGHT = { 1: 1.0, 2: 0.5, 3: 0.18 };
 
 const PILLAR_NAMES = {
   prof_brand: "Professional Brand",
@@ -267,8 +270,8 @@ async function generateDailyQuest(sendNotification = false) {
   // Build a flat list of all activities with IDs
   const pool = [];
   for (const [pillar, items] of Object.entries(ALL_ACTIVITIES)) {
-    items.forEach((label, idx) => {
-      pool.push({ id: `${pillar}:${idx}`, pillar, idx, label });
+    items.forEach((item, idx) => {
+      pool.push({ id: `${pillar}:${idx}`, pillar, idx, label: item.label, difficulty: item.difficulty });
     });
   }
 
@@ -341,6 +344,9 @@ async function generateDailyQuest(sendNotification = false) {
     // Boost never-done activities
     if (!lifetimeCounts[a.id]) weight *= 1.5;
 
+    // Difficulty: easy=1.0, medium=0.5, hard=0.18
+    weight *= DIFFICULTY_WEIGHT[a.difficulty] || 1.0;
+
     // Add randomness (seeded by date for reproducibility)
     const seed = hashStr(todayStr + a.id);
     weight *= 0.5 + (seed % 1000) / 1000; // 0.5-1.5x random factor
@@ -370,6 +376,7 @@ async function generateDailyQuest(sendNotification = false) {
       pillarName: PILLAR_NAMES[a.pillar],
       idx: a.idx,
       label: a.label,
+      difficulty: a.difficulty,
       done: false,
     })),
   };

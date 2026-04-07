@@ -3,61 +3,61 @@ const ACTIVITIES = {
   prof_brand: {
     name: "Professional Brand",
     items: [
-      "Published an original post",
-      "Published a long-form article",
-      "Updated a profile section",
-      "Requested a skill endorsement",
-      "Gave a skill endorsement to a connection",
-      "Shared industry content with personal commentary",
-      "Refreshed profile photo or banner",
-      "Added a quantified achievement to experience",
-      "Added or updated featured section",
-      "Completed a LinkedIn learning course",
+      { label: "Published an original post", difficulty: 2 },
+      { label: "Published a long-form article", difficulty: 3 },
+      { label: "Updated a profile section", difficulty: 2 },
+      { label: "Requested a skill endorsement", difficulty: 1 },
+      { label: "Gave a skill endorsement to a connection", difficulty: 1 },
+      { label: "Shared industry content with personal commentary", difficulty: 2 },
+      { label: "Refreshed profile photo or banner", difficulty: 3 },
+      { label: "Added a quantified achievement to experience", difficulty: 2 },
+      { label: "Added or updated featured section", difficulty: 3 },
+      { label: "Completed a LinkedIn learning course", difficulty: 3 },
     ],
   },
   find_right_people: {
     name: "Find Right People",
     items: [
-      "Used advanced search filters to find prospects",
-      "Saved 5+ new leads",
-      "Saved a new account",
-      'Reviewed "People Also Viewed" suggestions',
-      "Used TeamLink to find a warm introduction",
-      "Browsed recommended accounts",
-      "Ran a boolean search query",
-      "Filtered by job change in the past 90 days",
-      "Searched within a specific account",
-      "Reviewed lead recommendations from Sales Navigator",
+      { label: "Used advanced search filters to find prospects", difficulty: 1 },
+      { label: "Saved 5+ new leads", difficulty: 1 },
+      { label: "Saved a new account", difficulty: 1 },
+      { label: 'Reviewed "People Also Viewed" suggestions', difficulty: 1 },
+      { label: "Used TeamLink to find a warm introduction", difficulty: 2 },
+      { label: "Browsed recommended accounts", difficulty: 1 },
+      { label: "Ran a boolean search query", difficulty: 2 },
+      { label: "Filtered by job change in the past 90 days", difficulty: 1 },
+      { label: "Searched within a specific account", difficulty: 1 },
+      { label: "Reviewed lead recommendations from Sales Navigator", difficulty: 1 },
     ],
   },
   insight_engagement: {
     name: "Insight Engagement",
     items: [
-      "Left a thoughtful comment on a lead's post",
-      "Shared content with personal insight added",
-      "Engaged with a target account's content",
-      "Created a poll",
-      "Responded to a poll",
-      "Sent a relevant article to a prospect",
-      "Liked a post from a saved lead",
-      "Reposted with added perspective",
-      "Replied to a comment on my own post",
-      "Tagged a connection in a relevant post",
+      { label: "Left a thoughtful comment on a lead's post", difficulty: 1 },
+      { label: "Shared content with personal insight added", difficulty: 2 },
+      { label: "Engaged with a target account's content", difficulty: 1 },
+      { label: "Created a poll", difficulty: 3 },
+      { label: "Responded to a poll", difficulty: 1 },
+      { label: "Sent a relevant article to a prospect", difficulty: 2 },
+      { label: "Liked a post from a saved lead", difficulty: 1 },
+      { label: "Reposted with added perspective", difficulty: 2 },
+      { label: "Replied to a comment on my own post", difficulty: 1 },
+      { label: "Tagged a connection in a relevant post", difficulty: 1 },
     ],
   },
   relationship: {
     name: "Strong Relationships",
     items: [
-      "Sent a personalized InMail",
-      "Followed up with a new connection",
-      "Congratulated a lead on a job change",
-      "Congratulated a lead on a work anniversary",
-      "Reconnected with a dormant contact",
-      "Responded to a message within 24 hours",
-      "Sent a voice note to a prospect",
-      "Accepted a connection request with a personal reply",
-      "Introduced two connections to each other",
-      "Scheduled a call or meeting with a lead",
+      { label: "Sent a personalized InMail", difficulty: 2 },
+      { label: "Followed up with a new connection", difficulty: 1 },
+      { label: "Congratulated a lead on a job change", difficulty: 1 },
+      { label: "Congratulated a lead on a work anniversary", difficulty: 1 },
+      { label: "Reconnected with a dormant contact", difficulty: 2 },
+      { label: "Responded to a message within 24 hours", difficulty: 1 },
+      { label: "Sent a voice note to a prospect", difficulty: 2 },
+      { label: "Accepted a connection request with a personal reply", difficulty: 1 },
+      { label: "Introduced two connections to each other", difficulty: 3 },
+      { label: "Scheduled a call or meeting with a lead", difficulty: 3 },
     ],
   },
 };
@@ -383,7 +383,7 @@ async function openDetail(key) {
       (item, i) => `
     <label class="activity-item">
       <input type="checkbox" data-index="${i}" ${todayAct[i] ? "checked" : ""}/>
-      <span class="activity-label">${item}</span>
+      <span class="activity-label">${item.label}</span>
     </label>
   `,
     )
@@ -512,7 +512,7 @@ function openActDetail(date) {
                     stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
-          <span class="act-item-text">${item}</span>
+          <span class="act-item-text">${item.label}</span>
         </div>`,
           )
           .join("");
@@ -533,6 +533,8 @@ $("act-detail-back").addEventListener("click", () => {
 });
 
 // ── Initial load ─────────────────────────────────────────────────────────────────
+const AUTO_REFRESH_KEY = "_se_lastAutoRefresh";
+
 async function loadAndRender() {
   allActivities = await loadActivities();
   chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
@@ -541,6 +543,15 @@ async function loadAndRender() {
       renderHistory(history);
     }
   });
+
+  // Auto-refresh stats once per day on open
+  const todayStr = today();
+  const stored = await new Promise(r => chrome.storage.local.get([AUTO_REFRESH_KEY], r));
+  if (stored[AUTO_REFRESH_KEY] !== todayStr) {
+    chrome.storage.local.set({ [AUTO_REFRESH_KEY]: todayStr });
+    chrome.runtime.sendMessage({ action: "fetchNow" });
+    chrome.runtime.sendMessage({ action: "fetchAnalytics" });
+  }
 }
 loadAndRender();
 
@@ -571,12 +582,16 @@ function renderQuest(quest) {
     : `${doneCount} / ${total} completed`;
 
   // Items
+  const DIFF_LABELS = ['Easy', 'Medium', 'Hard'];
   itemsEl.innerHTML = quest.items.map(item => `
     <div class="dq-item ${item.done ? 'done' : ''}" data-quest-id="${item.id}">
       <div class="dq-check">${QUEST_CHECK_ICON}</div>
       <div class="dq-item-text">
         <div class="dq-item-label">${item.label}</div>
-        <div class="dq-item-pillar">${item.pillarName}</div>
+        <div class="dq-item-meta">
+          <span class="dq-item-pillar">${item.pillarName}</span>
+          ${item.difficulty ? `<span class="dq-difficulty dq-diff-${item.difficulty}">${DIFF_LABELS[item.difficulty - 1]}</span>` : ''}
+        </div>
       </div>
     </div>
   `).join("");

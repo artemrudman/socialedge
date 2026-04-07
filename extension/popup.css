@@ -410,13 +410,28 @@ html.day .icon-moon { display: none; }
   text-decoration: line-through;
   text-decoration-color: var(--green);
 }
+.dq-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
 .dq-item-pillar {
   font-size: 10px;
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: .04em;
-  margin-top: 2px;
 }
+.dq-difficulty {
+  font-size: 9px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.dq-diff-1 { color: #34d399; background: rgba(52,211,153,.12); }
+.dq-diff-2 { color: #fbbf24; background: rgba(251,191,36,.12); }
+.dq-diff-3 { color: #f87171; background: rgba(248,113,113,.12); }
 
 /* Done state */
 .dq-done {
