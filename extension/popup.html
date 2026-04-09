@@ -58,6 +58,7 @@
       <div class="hero-trend" id="overall-trend"></div>
       <button class="quest-trigger" id="quest-trigger" title="Today's Tasks">
         <span class="quest-trigger-dot" id="quest-trigger-dot"></span>
+        <span class="quest-trigger-label">Daily Tasks</span>
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
           <path d="M8 1c0 2.5-2 4-2 6a3.5 3.5 0 0 0 3 3.46c-.56-.44-.92-1.12-.92-1.96 0-1.4 1.92-2.5 1.92-4.5 0 0 2 2 2 5a5 5 0 1 1-9-3C3 3.5 5.5 1.5 8 1z"
             fill="url(#flame-grad)"/>
@@ -242,8 +243,15 @@
 
   </div><!-- /.dash-left -->
 
-  <!-- ── Right column (narrow: sliding overlays, wide: inline panels) ── -->
+  <!-- ── Right column (narrow: sliding overlays, wide: tab panels) ── -->
   <div class="dash-right">
+
+  <!-- Tab bar — only visible in wide mode -->
+  <div class="dash-tabs" id="dash-tabs">
+    <button class="dash-tab active" data-tab="quest">Daily Tasks</button>
+    <button class="dash-tab" data-tab="history">Score History</button>
+    <button class="dash-tab" data-tab="analytics">Analytics</button>
+  </div>
 
   <!-- ── Quest screen (slides from right) ──────────────────────────────── -->
   <div class="quest-screen" id="quest-screen">
@@ -530,7 +538,7 @@
         <circle cx="24" cy="3"  r="3" fill="#34D399"/>
       </svg>
       <div class="support-name">SocialEdge</div>
-      <div class="support-version">Version 2.1.4</div>
+      <div class="support-version">Version 2.1.5</div>
       <p class="support-desc">Track and grow your LinkedIn Social Selling Index score — automatically, every day.</p>
       <div class="support-divider"></div>
       <div class="support-email-label">Support</div>
@@ -561,6 +569,9 @@
           </svg>
         </button>
       </div>
+
+      <div class="support-divider"></div>
+      <button class="support-replay-btn" id="replay-walkthrough">Replay Walkthrough</button>
     </div>
   </div>
 

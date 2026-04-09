@@ -128,24 +128,60 @@ async function runFetch() {
   if (pendingSSIResolvers.size > 0) return { error: 'Fetch already in progress.' };
 
   const stored = await chrome.storage.local.get([SSI_HEADERS_KEY]);
-  const cached = stored[SSI_HEADERS_KEY];
+  let cached = stored[SSI_HEADERS_KEY];
 
+  // ── Auto-bootstrap: if no headers cached, try to open SSI page silently ───
   if (!cached?.headers) {
-    return {
-      error: 'Visit LinkedIn Sales Navigator once to initialize SocialEdge — ' +
-             'your score will be captured automatically after that.',
-    };
+    const tabs = await chrome.tabs.query({ url: '*://*.linkedin.com/*' });
+    if (!tabs.length) {
+      return {
+        error: 'no_linkedin',
+        message: 'Open any LinkedIn page so SocialEdge can capture your score.',
+      };
+    }
+    // Navigate existing LinkedIn tab to SSI page — this triggers LinkedIn's own
+    // SSI API call, which our webRequest listener captures automatically.
+    try {
+      await chrome.tabs.update(tabs[0].id, { url: SALES_URL });
+      // Wait for page load + SSI API call to fire
+      await new Promise((resolve) => {
+        const listener = (tId, info) => {
+          if (tId === tabs[0].id && info.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+        setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 12000);
+      });
+      // Give the SSI API request a moment to fire after page load
+      await new Promise(r => setTimeout(r, 3000));
+      // Re-read headers (webRequest listener should have captured them)
+      const refreshed = await chrome.storage.local.get([SSI_HEADERS_KEY]);
+      cached = refreshed[SSI_HEADERS_KEY];
+      if (!cached?.headers) {
+        return {
+          error: 'no_headers',
+          message: 'Could not capture SSI data. Make sure you are logged into LinkedIn.',
+        };
+      }
+    } catch (e) {
+      return { error: 'bootstrap_failed', message: e.message };
+    }
   }
 
   const tabs = await chrome.tabs.query({ url: '*://*.linkedin.com/*' });
   if (!tabs.length) {
-    return { error: 'Open a LinkedIn tab, then try again.' };
+    return {
+      error: 'no_linkedin',
+      message: 'Open a LinkedIn tab, then try again.',
+    };
   }
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingSSIResolvers.delete(wrappedResolve);
-      resolve({ error: 'Request timed out. Try refreshing your LinkedIn page.' });
+      resolve({ error: 'timeout', message: 'Request timed out. Try refreshing your LinkedIn page.' });
     }, 15000);
 
     function wrappedResolve(result) {
@@ -732,12 +768,14 @@ async function replayAnalytics() {
   if (anyStored) {
     await chrome.storage.local.set({ [ANALYTICS_KEY]: current });
 
-    // ── Save a history snapshot for the analytics chart ────────────────────
+    // ── Save a history snapshot for the analytics chart (one per day, best values) ─
     const HISTORY_KEY = 'liAnalyticsHistory';
     const histStored = await chrome.storage.local.get([HISTORY_KEY]);
     const history = histStored[HISTORY_KEY] || [];
+    const todayDate = new Date(now).toISOString().split('T')[0];
     const snapshot = {
       ts: now,
+      date: todayDate,
       followers:         result.followers         ?? null,
       connections:       result.connections        ?? null,
       profileViews:      result.profileViews       ?? null,
@@ -745,14 +783,26 @@ async function replayAnalytics() {
       impressions:       result.postImpressions    ?? null,
       engagements:       result.engagements        ?? null,
     };
-    // Avoid duplicate snapshots within 1 hour
-    const last = history[history.length - 1];
-    if (!last || (now - last.ts) > 3600000) {
+    // One entry per day — keep the biggest value for each metric
+    const existingIdx = history.findIndex(h => h.date === todayDate);
+    if (existingIdx >= 0) {
+      const prev = history[existingIdx];
+      const METRICS = ['followers', 'connections', 'profileViews', 'searchAppearances', 'impressions', 'engagements'];
+      for (const m of METRICS) {
+        if (snapshot[m] != null && prev[m] != null) {
+          snapshot[m] = Math.max(snapshot[m], prev[m]);
+        } else if (snapshot[m] == null) {
+          snapshot[m] = prev[m];
+        }
+      }
+      snapshot.ts = now;
+      history[existingIdx] = snapshot;
+    } else {
       history.push(snapshot);
-      // Keep max 90 snapshots
-      if (history.length > 90) history.splice(0, history.length - 90);
-      await chrome.storage.local.set({ [HISTORY_KEY]: history });
     }
+    // Keep max 365 daily snapshots
+    if (history.length > 365) history.splice(0, history.length - 365);
+    await chrome.storage.local.set({ [HISTORY_KEY]: history });
 
     const summary = [
       result.connections != null       ? `${result.connections} conn` : null,

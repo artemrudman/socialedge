@@ -295,7 +295,10 @@ function renderHistory(history) {
         if (cur == null || prv == null) return `<td>${val}</td>`;
         const d = cur - prv;
         if (Math.abs(d) < 0.05) return `<td>${val}</td>`;
-        return `<td class="${d > 0 ? "t-up" : "t-down"}">${val}${d > 0 ? " ↑" : " ↓"}</td>`;
+        const arrow = d > 0
+          ? `<span class="t-up"> ↑</span>`
+          : `<span class="t-down"> ↓</span>`;
+        return `<td>${val}${arrow}</td>`;
       }
 
       const hasDayAct = hasActivity(allActivities, entry.date);
@@ -541,6 +544,9 @@ async function loadAndRender() {
     if (history?.length) {
       render(history[0], history[1]);
       renderHistory(history);
+      hideSetupCard();
+    } else {
+      showSetupCard();
     }
   });
 
@@ -553,17 +559,95 @@ async function loadAndRender() {
     chrome.runtime.sendMessage({ action: "fetchAnalytics" });
   }
 }
+
+// ── Setup card — shown on first run when no SSI data exists ──────────────────
+function showSetupCard() {
+  if ($("setup-card")) return;
+  const card = document.createElement("div");
+  card.id = "setup-card";
+  card.className = "setup-card";
+  card.innerHTML = `
+    <div class="setup-icon">
+      <svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+        <line x1="4" y1="22" x2="14" y2="11" stroke="#34D399" stroke-width="2" stroke-linecap="round" opacity=".6"/>
+        <line x1="14" y1="11" x2="24" y2="3"  stroke="#34D399" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="4"  cy="22" r="3" fill="#34D399" opacity=".45"/>
+        <circle cx="14" cy="11" r="3" fill="#34D399" opacity=".72"/>
+        <circle cx="24" cy="3"  r="3" fill="#34D399"/>
+      </svg>
+    </div>
+    <div class="setup-title">Welcome to SocialEdge!</div>
+    <div class="setup-desc">Let's capture your LinkedIn Social Selling Index score. Follow these quick steps:</div>
+    <ol class="setup-steps">
+      <li><span class="setup-step-num">1</span> Open <a href="https://www.linkedin.com" target="_blank" rel="noopener">linkedin.com</a> in a tab and sign in</li>
+      <li><span class="setup-step-num">2</span> Click <strong>Refresh Score</strong> below — we'll fetch your SSI automatically</li>
+      <li><span class="setup-step-num">3</span> Done! Your score updates daily from now on</li>
+    </ol>
+    <div class="setup-hint">Your score will appear here within a few seconds after refresh.</div>
+  `;
+  // Insert after hero section
+  const hero = document.querySelector(".hero");
+  if (hero?.nextElementSibling) {
+    hero.parentNode.insertBefore(card, hero.nextElementSibling);
+  }
+}
+
+function hideSetupCard() {
+  const card = $("setup-card");
+  if (card) {
+    card.style.animation = "setupFadeOut .3s ease forwards";
+    setTimeout(() => card.remove(), 300);
+  }
+}
 loadAndRender();
 
-// ── Wide dashboard mode — auto-open panels when viewport ≥ 700px ────────────────
+// ── Wide dashboard mode — tab switching when viewport ≥ 700px ───────────────────
 function isWideMode() { return window.innerWidth >= 700; }
+
+const DASH_TAB_MAP = {
+  quest: "quest-screen",
+  history: "history-screen",
+  analytics: "analytics-screen",
+};
+let _wideInited = false;
+let _activeDashTab = "quest";
+
+function switchDashTab(tab) {
+  _activeDashTab = tab;
+  // Update tab buttons
+  document.querySelectorAll(".dash-tab").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  // Show/hide panels
+  for (const [key, id] of Object.entries(DASH_TAB_MAP)) {
+    $(id).classList.toggle("dash-active", key === tab);
+  }
+  // Lazy-load analytics on first view
+  if (tab === "analytics" && !_wideInited) {
+    _wideInited = true;
+    loadAnalytics();
+  }
+}
+
+// Tab click handlers
+document.querySelectorAll(".dash-tab").forEach(btn => {
+  btn.addEventListener("click", () => switchDashTab(btn.dataset.tab));
+});
 
 function applyWideMode() {
   if (isWideMode()) {
+    // Open panels (needed for JS that checks .open)
     $("quest-screen").classList.add("open");
     $("history-screen").classList.add("open");
     $("analytics-screen").classList.add("open");
+    switchDashTab(_activeDashTab);
     loadAnalytics();
+  } else {
+    // Going back to narrow — close all overlay panels
+    $("quest-screen").classList.remove("open", "dash-active");
+    $("history-screen").classList.remove("open", "dash-active");
+    $("analytics-screen").classList.remove("open", "dash-active");
+    _wideInited = false;
   }
 }
 applyWideMode();
@@ -721,6 +805,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (history.length) {
       render(history[0], history[1]);
       renderHistory(history);
+      hideSetupCard();
     }
   }
   if (area === "local" && changes.dailyActivities) {
@@ -764,9 +849,16 @@ $("btn-refresh").addEventListener("click", () => {
   chrome.runtime.sendMessage({ action: "fetchNow" }, (result) => {
     if (!result || result.error) {
       animateBtn(btn, REFRESH_BTN_HTML, 'error');
+      // Show user-friendly error in status bar
+      const msg = result?.message || result?.error || 'Could not fetch score.';
+      const bar = $("status-bar");
+      bar.textContent = msg;
+      bar.classList.remove("hidden");
+      setTimeout(() => bar.classList.add("hidden"), 6000);
       return;
     }
     animateBtn(btn, REFRESH_BTN_HTML, 'success');
+    hideSetupCard();
     chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
       if (history?.length) {
         render(history[0], history[1]);
@@ -1359,11 +1451,17 @@ function drawAnalyticsChart(history) {
   const metric = ANALYTICS_METRICS.find(m => m.key === analyticsActiveMetric);
   if (!metric) return;
 
-  // Build data points: { ts, value } sorted by time
-  const pts = history
-    .map(snap => ({ ts: snap.ts, value: snap[metric.key] }))
-    .filter(p => p.value != null)
-    .sort((a, b) => a.ts - b.ts);
+  // Build data points: one per day (max value), sorted by time
+  const byDay = {};
+  for (const snap of history) {
+    const v = snap[metric.key];
+    if (v == null) continue;
+    const day = snap.date || new Date(snap.ts).toISOString().split('T')[0];
+    if (!byDay[day] || v > byDay[day].value) {
+      byDay[day] = { ts: snap.ts, value: v, date: day };
+    }
+  }
+  const pts = Object.values(byDay).sort((a, b) => a.ts - b.ts);
 
   if (!pts.length) return;
 
@@ -1514,10 +1612,17 @@ function drawAnalyticsChart(history) {
     if (!currentHistory.length) return -1;
     const metric = ANALYTICS_METRICS.find(m => m.key === analyticsActiveMetric);
     if (!metric) return -1;
-    const pts = currentHistory
-      .map(snap => ({ ts: snap.ts, value: snap[metric.key] }))
-      .filter(p => p.value != null)
-      .sort((a, b) => a.ts - b.ts);
+    // Must match the same daily-grouped logic as drawAnalyticsChart
+    const byDay = {};
+    for (const snap of currentHistory) {
+      const v = snap[metric.key];
+      if (v == null) continue;
+      const day = snap.date || new Date(snap.ts).toISOString().split('T')[0];
+      if (!byDay[day] || v > byDay[day].value) {
+        byDay[day] = { ts: snap.ts, value: v, date: day };
+      }
+    }
+    const pts = Object.values(byDay).sort((a, b) => a.ts - b.ts);
     if (!pts.length) return -1;
 
     const W = canvas.offsetWidth;
@@ -1810,7 +1915,13 @@ Auth.init().then(() => updateAuthUI());
 // ── Onboarding Walkthrough ──────────────────────────────────────────────────────
 const OB_KEY = "_se_onboardDone";
 
-const OB_STEPS = [
+const OB_STEPS_ALL = [
+  {
+    target: "#btn-refresh",
+    title: "Getting Started",
+    desc: "First, open linkedin.com in any tab and sign in. Then click Refresh Score \u2014 SocialEdge will fetch your SSI automatically. After this one-time setup, your score updates every day behind the scenes.",
+    pos: "above",
+  },
   {
     target: ".hero",
     title: "Your Overall Score",
@@ -1840,12 +1951,14 @@ const OB_STEPS = [
     title: "Score History",
     desc: "View your full score history with trends, a visual chart, and 30/60/90-day forecasts. Every data point is saved automatically.",
     pos: "above",
+    narrowOnly: true,
   },
   {
     target: "#btn-analytics",
     title: "LinkedIn Analytics",
     desc: "Track your profile views, followers, connections, search appearances, and post impressions \u2014 all captured directly from your LinkedIn profile.",
     pos: "above",
+    narrowOnly: true,
   },
   {
     target: ".boost-link",
@@ -1855,9 +1968,20 @@ const OB_STEPS = [
   },
 ];
 
+// Filter out steps targeting hidden elements (e.g. in wide mode)
+function getObSteps() {
+  return OB_STEPS_ALL.filter(s => {
+    if (s.narrowOnly && isWideMode()) return false;
+    const el = document.querySelector(s.target);
+    return el && el.offsetParent !== null; // visible in DOM
+  });
+}
+let OB_STEPS = getObSteps();
+
 let obStep = 0;
 
 function startOnboarding() {
+  OB_STEPS = getObSteps();
   obStep = 0;
   $("ob-overlay").classList.remove("hidden");
   renderObStep();
@@ -1977,4 +2101,11 @@ chrome.storage.local.get([OB_KEY], (r) => {
     // Short delay so the UI renders first
     setTimeout(startOnboarding, 600);
   }
+});
+
+// Replay walkthrough from About screen
+$("replay-walkthrough").addEventListener("click", () => {
+  $("support-screen").classList.remove("open");
+  chrome.storage.local.remove(OB_KEY);
+  setTimeout(startOnboarding, 400);
 });
