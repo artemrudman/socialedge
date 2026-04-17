@@ -983,7 +983,974 @@ async function storeAnalytics(tag, raw) {
   console.log('[SocialEdge] Analytics stored:', parsed.type, JSON.stringify(parsed));
 }
 
+// ── Profile Tips — analyze LinkedIn profile and give actionable advice ───────
+const TIPS_KEY = 'profileTips';
+
+async function replayProfileTips() {
+  const tabs = await chrome.tabs.query({ url: '*://*.linkedin.com/*' });
+  if (!tabs.length) return { error: 'Open a LinkedIn tab, then try again.' };
+
+  // CSRF token
+  let csrfToken = null;
+  try {
+    const c = await chrome.cookies.get({ url: 'https://www.linkedin.com', name: 'JSESSIONID' });
+    if (c?.value) {
+      const raw = c.value.replace(/^"(.*)"$/, '$1');
+      csrfToken = raw.startsWith('ajax:') ? raw : 'ajax:' + raw;
+    }
+  } catch (_) {}
+
+  const apiHeaders = {
+    'accept': 'application/vnd.linkedin.normalized+json+2.1',
+    'csrf-token': csrfToken || '',
+    'x-restli-protocol-version': '2.0.0',
+  };
+
+  try {
+    // Phase 1: get profile slug
+    const tabId = tabs[0].id;
+    const [meRes] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async (hdrs) => {
+        const r = await fetch('/voyager/api/me', { credentials: 'include', headers: hdrs });
+        if (!r.ok) return null;
+        const j = await r.json();
+        const p = (j?.included || []).find(x => x?.publicIdentifier);
+        return p?.publicIdentifier ?? null;
+      },
+      args: [apiHeaders],
+    });
+    const slug = meRes?.result;
+    if (!slug) return { error: 'Could not find profile slug.' };
+
+    // Phase 2: get headline, about, photo, banner from Voyager API (reliable structured data)
+    const [apiRes] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async (profileSlug, hdrs) => {
+        try {
+          const r = await fetch(`/voyager/api/identity/profiles/${profileSlug}`, {
+            credentials: 'include', headers: hdrs,
+          });
+          if (!r.ok) return { _error: `HTTP ${r.status}`, _keys: [] };
+          const data = await r.json();
+          // Data may be top-level or inside data/included
+          const p = data?.data || data || {};
+          const included = data?.included || [];
+          // Find the profile entity in included
+          const profileEntity = included.find(e =>
+            e.publicIdentifier === profileSlug ||
+            (e.$type || '').includes('Profile')
+          ) || p;
+          // Search all included entities for headline
+          let headline = profileEntity.headline || p.headline || '';
+          let summary = profileEntity.summary || p.summary || '';
+          if (!headline || !summary) {
+            for (const e of included) {
+              if (!headline && e.headline) headline = e.headline;
+              if (!summary && e.summary) summary = e.summary;
+            }
+          }
+          return {
+            headline: headline.trim(),
+            summary: summary.trim(),
+            hasPhoto: !!(
+              profileEntity.profilePicture || p.profilePicture ||
+              profileEntity.displayPictureUrl || p.displayPictureUrl ||
+              profileEntity.picture || p.picture ||
+              included.some(e => e.profilePicture || e.picture)
+            ),
+            hasBanner: !!(
+              profileEntity.backgroundImage || p.backgroundImage ||
+              profileEntity.backgroundPicture || p.backgroundPicture ||
+              included.some(e => e.backgroundImage || e.backgroundPicture)
+            ),
+            _keys: Object.keys(profileEntity).slice(0, 30),
+            _pKeys: Object.keys(p).slice(0, 30),
+            _includedCount: included.length,
+            _includedTypes: [...new Set(included.map(e => e.$type || ''))].slice(0, 10),
+          };
+        } catch (e) { return { _error: e.message, _keys: [] }; }
+      },
+      args: [slug, apiHeaders],
+    });
+    const apiData = apiRes?.result;
+
+    // Phase 3: navigate to profile and scrape DOM for section detection
+    const profileUrl = `https://www.linkedin.com/in/${slug}/`;
+    const currentUrl = tabs[0].url || '';
+    if (!currentUrl.includes(`/in/${slug}`)) {
+      await chrome.tabs.update(tabId, { url: profileUrl });
+      await new Promise((resolve) => {
+        const listener = (tId, info) => {
+          if (tId === tabId && info.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+        setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 15000);
+      });
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    // Phase 4: scroll page to load lazy sections, find them by text in <section> headings
+    const [scrapeRes] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        // Scroll twice to load all lazy sections
+        for (let pass = 0; pass < 2; pass++) {
+          const totalH = document.body.scrollHeight;
+          for (let y = 0; y <= totalH; y += 300) {
+            window.scrollTo(0, y);
+            await new Promise(r => setTimeout(r, 300));
+          }
+          await new Promise(r => setTimeout(r, 500));
+        }
+        window.scrollTo(0, 0);
+        await new Promise(r => setTimeout(r, 500));
+
+        // Collect all <section> elements — grab the first ~100 chars for matching
+        const allSections = [...document.querySelectorAll('section')];
+        const sectionTexts = allSections.map(sec => {
+          // Get heading text (first h2/h3 or header-like element)
+          const heading = sec.querySelector('h2, h3, [class*="pvs-header"] span, [class*="header"] span');
+          const headingText = heading ? heading.textContent.trim().toLowerCase() : '';
+          // Also get first 150 chars of section for broader matching
+          const fullText = sec.textContent.substring(0, 150).toLowerCase();
+          return { el: sec, headingText, fullText };
+        });
+
+        const debug = {};
+
+        // ── Find section by keyword ──
+        function findSec(...keywords) {
+          for (const kw of keywords) {
+            const kwl = kw.toLowerCase();
+            // First try heading match (more precise)
+            for (const s of sectionTexts) {
+              if (s.headingText.includes(kwl)) return s.el;
+            }
+            // Then try full text match
+            for (const s of sectionTexts) {
+              if (s.fullText.includes(kwl)) return s.el;
+            }
+          }
+          return null;
+        }
+
+        function countListItems(sec) {
+          if (!sec) return 0;
+          return sec.querySelectorAll('li').length;
+        }
+
+        // ── Detect each section ──
+        const CHECKS = {
+          experience:      ['experience'],
+          education:       ['education'],
+          skills:          ['skills'],
+          certifications:  ['licenses', 'certification'],
+          recommendations: ['recommendation'],
+          featured:        ['featured'],
+          volunteer:       ['volunteer'],
+          projects:        ['project'],
+          publications:    ['publication'],
+          activity:        ['activity'],
+        };
+
+        const result = {};
+        for (const [key, keywords] of Object.entries(CHECKS)) {
+          const sec = findSec(...keywords);
+          const found = !!sec;
+          debug[key] = found ? keywords[0] : 'not found';
+
+          if (key === 'skills' && sec) {
+            let count = countListItems(sec);
+            // Fallback: parse count from heading like "Skills (66)"
+            if (count === 0) {
+              const heading = sec.querySelector('h2, h3, [class*="header"] span');
+              const hText = heading ? heading.textContent : sec.textContent.substring(0, 100);
+              const numMatch = hText.match(/\((\d+)\)/);
+              if (numMatch) count = parseInt(numMatch[1], 10);
+            }
+            debug.skillCount = count;
+            result[key] = { status: count === 0 ? 'missing' : count < 5 ? 'weak' : 'complete', count };
+          } else if (key === 'recommendations' && sec) {
+            let count = countListItems(sec);
+            if (count === 0) {
+              const heading = sec.querySelector('h2, h3, [class*="header"] span');
+              const hText = heading ? heading.textContent : sec.textContent.substring(0, 100);
+              const numMatch = hText.match(/\((\d+)\)/);
+              if (numMatch) count = parseInt(numMatch[1], 10);
+            }
+            debug.recCount = count;
+            result[key] = { status: count === 0 ? 'missing' : count < 3 ? 'weak' : 'complete', count };
+          } else {
+            result[key] = { status: found ? 'complete' : 'missing' };
+          }
+        }
+
+        // ── About section quality check via DOM ──
+        const aboutSec = findSec('about');
+        debug.aboutFound = !!aboutSec;
+        if (aboutSec) {
+          // Get longest text block in the section (the actual about text)
+          let longest = '';
+          for (const el of aboutSec.querySelectorAll('span, p, div')) {
+            const t = el.textContent.trim();
+            if (t.length > longest.length && !t.includes('\n')) longest = t;
+          }
+          // Fallback: full section text minus heading
+          if (longest.length < 30) {
+            longest = aboutSec.textContent.replace(/^\s*about\s*/i, '').trim();
+          }
+          debug.aboutLength = longest.length;
+          if (longest.length < 20) result.about = { status: 'missing', length: 0 };
+          else if (longest.length < 100) result.about = { status: 'weak', length: longest.length };
+          else result.about = { status: 'complete', length: longest.length };
+        } else {
+          result.about = { status: 'missing', length: 0 };
+        }
+
+        // ── Headline detection ──
+        // Note: LinkedIn may NOT have an <h1> element on the page anymore.
+        // Get the profile name from document.title: "Name | LinkedIn"
+        let domHeadline = '';
+        const pgTitle = document.title || '';
+        debug.pageTitle = pgTitle.substring(0, 150);
+        const titleName = pgTitle.replace(/\s*\|.*$/, '').replace(/\s*[-–—].*$/, '').trim();
+        const nameLower = titleName.toLowerCase();
+        debug.profileName = titleName;
+
+        // Also try h1 as fallback for name
+        const h1 = document.querySelector('h1');
+        debug.h1Found = !!h1;
+        if (h1) debug.h1Text = h1.textContent.trim();
+
+        function isHeadlineCandidate(t) {
+          if (!t || t.length < 5 || t.length > 300) return false;
+          const tl = t.toLowerCase();
+          if (tl === nameLower) return false;
+          if (nameLower && tl.includes(nameLower)) return false;
+          if (/^(connect|follow|more|message|open to|pending|edit|save|cancel)/i.test(t)) return false;
+          if (/^\d+\s*(connection|follower|mutual)/i.test(t)) return false;
+          if (/^(contact info|show all|about|experience|education|skills|activity|featured|see all)/i.test(t)) return false;
+          if (/^(licenses|certification|recommendation|project|publication|language|interest|volunteer)/i.test(t)) return false;
+          if (/^(who your|people you|you might|analytics|\d+ notification)/i.test(t)) return false;
+          return true;
+        }
+
+        // ── Headline detection helpers ──
+        function decodeJsonString(s) {
+          return s.replace(/\\u([\dA-Fa-f]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+                  .replace(/\\n/g, ' ').replace(/\\t/g, ' ').replace(/\\"/g, '"').trim();
+        }
+
+        // Search a text blob for headline candidates using multiple patterns.
+        // Handles BOTH flat strings and LinkedIn's nested {"text":"..."} format.
+        function extractHeadlineFromBlob(blob) {
+          let best = '';
+          function tryCandidate(raw) {
+            const c = decodeJsonString(raw);
+            if (isHeadlineCandidate(c) && c.length > best.length) best = c;
+          }
+          // Pattern A: flat string  "occupation":"..." or "headline":"..."
+          for (const m of blob.matchAll(/"(?:occupation|headline)"\s*:\s*"([^"]{5,500})"/g)) tryCandidate(m[1]);
+          // Pattern B: nested object — search around every "headline" / "occupation" occurrence
+          //   e.g. "headline":{"attributes":[...],"text":"Data & Operations Analyst..."}
+          let pos = 0;
+          const keys = ['"headline"', '"occupation"'];
+          for (const key of keys) {
+            pos = 0;
+            while ((pos = blob.indexOf(key, pos)) !== -1) {
+              // Look for "text":"..." within the next 2000 chars
+              const window2k = blob.substring(pos, pos + 2000);
+              const tm = window2k.match(/"text"\s*:\s*"([^"]{5,500})"/);
+              if (tm?.[1]) tryCandidate(tm[1]);
+              pos += key.length;
+            }
+          }
+          return best;
+        }
+
+        // Strategy 0: DOM — script[type="application/json"] tags (LinkedIn's current SSR format)
+        const scriptJsonEls = document.querySelectorAll('script[type="application/json"]');
+        debug.scriptJsonCount = scriptJsonEls.length;
+        const codeEls = document.querySelectorAll('code');
+        debug.codeTagCount = codeEls.length;
+
+        let bestHeadline = '';
+        for (const el of [...scriptJsonEls, ...codeEls]) {
+          const txt = el.textContent;
+          if (!txt || txt.length < 50) continue;
+          const found = extractHeadlineFromBlob(txt);
+          if (found.length > bestHeadline.length) bestHeadline = found;
+        }
+        if (bestHeadline) {
+          domHeadline = bestHeadline;
+          debug.headlineStrategy = '0-dom-json';
+        }
+
+        // Strategy 0b: JSON-LD <script> tags
+        if (!domHeadline) {
+          for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+            try {
+              const ld = JSON.parse(script.textContent);
+              const candidate = ld.jobTitle || ld.headline || '';
+              if (candidate && isHeadlineCandidate(candidate)) {
+                domHeadline = candidate.trim();
+                debug.headlineStrategy = '0b-jsonld';
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+
+        // Strategy 1: DOM class selectors — LinkedIn profile top card
+        if (!domHeadline) {
+          // Try every class pattern LinkedIn uses for headline text
+          const domSelectors = [
+            '.text-body-medium.break-words',
+            '.text-body-medium',
+            '[class*="top-card__headline"]',
+            '[class*="pv-text-details__left-panel"] .mt2',
+            '[class*="profile-info-subheader"]',
+            '[class*="headline"]',
+            '[data-generated-suggestion-type]',
+          ];
+          debug.domSelectorSamples = {};
+          for (const sel of domSelectors) {
+            const els = document.querySelectorAll(sel);
+            // Log first 3 texts for diagnostics
+            debug.domSelectorSamples[sel] = [...els].slice(0, 3).map(e => e.textContent.trim().substring(0, 80));
+            for (const el of els) {
+              const t = el.textContent.trim().replace(/\s+/g, ' ');
+              if (isHeadlineCandidate(t) && t.length > domHeadline.length) {
+                domHeadline = t;
+                debug.headlineStrategy = `1-dom:${sel}`;
+              }
+            }
+            if (domHeadline) break;
+          }
+        }
+
+        // Strategy 2: Find profile name element, take next sibling text
+        if (!domHeadline) {
+          const nameEl = [...document.querySelectorAll('h1, h2, [class*="name"]')]
+            .find(el => el.textContent.trim().toLowerCase().includes(nameLower) && el.textContent.trim().length < 80);
+          if (nameEl) {
+            debug.nameElTag = nameEl.tagName + '.' + nameEl.className.substring(0, 40);
+            // Check next siblings in parent
+            let sibling = nameEl.nextElementSibling;
+            for (let i = 0; i < 5 && sibling; i++) {
+              const t = sibling.textContent.trim().replace(/\s+/g, ' ');
+              if (isHeadlineCandidate(t)) {
+                domHeadline = t;
+                debug.headlineStrategy = '2-name-sibling';
+                break;
+              }
+              sibling = sibling.nextElementSibling;
+            }
+            // Also check parent's next sibling
+            if (!domHeadline && nameEl.parentElement) {
+              let pSibling = nameEl.parentElement.nextElementSibling;
+              for (let i = 0; i < 3 && pSibling; i++) {
+                const t = pSibling.textContent.trim().replace(/\s+/g, ' ');
+                if (isHeadlineCandidate(t) && t.length < 300) {
+                  domHeadline = t;
+                  debug.headlineStrategy = '2-parent-sibling';
+                  break;
+                }
+                pSibling = pSibling.nextElementSibling;
+              }
+            }
+          }
+        }
+
+        // Strategy 3: Fetch raw HTML — handles nested {"text":"..."} format
+        if (!domHeadline) {
+          try {
+            const rawResp = await fetch(window.location.href, { credentials: 'include' });
+            const rawHtml = await rawResp.text();
+            debug.rawHtmlLen = rawHtml.length;
+            // Sample the first "headline" context for diagnostics
+            const sampleIdx = rawHtml.indexOf('"headline"');
+            if (sampleIdx !== -1) debug.headlineSample = rawHtml.substring(sampleIdx, sampleIdx + 200);
+            const rawBest = extractHeadlineFromBlob(rawHtml);
+            if (rawBest) {
+              domHeadline = rawBest;
+              debug.headlineStrategy = '3-raw-html';
+            }
+            // Fallback: title tag "Name - Headline | LinkedIn"
+            if (!domHeadline) {
+              const rawTitle = rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
+              debug.rawTitle = rawTitle?.[1]?.substring(0, 150) || '';
+              const rm = rawTitle?.[1]?.match(/^.+?\s*[-–—]\s*(.+?)\s*\|\s*LinkedIn/i);
+              if (rm?.[1] && isHeadlineCandidate(rm[1].trim())) {
+                domHeadline = rm[1].trim();
+                debug.headlineStrategy = '3-raw-title';
+              }
+            }
+          } catch (e) { debug.rawFetchError = e.message; }
+        }
+
+        // Strategy 4: document.title (works for other profiles "Name - Headline | LinkedIn")
+        if (!domHeadline) {
+          const tm = pgTitle.match(/^.+?\s*[-–—]\s*(.+?)\s*\|\s*LinkedIn/i);
+          if (tm?.[1] && isHeadlineCandidate(tm[1].trim())) {
+            domHeadline = tm[1].trim();
+            debug.headlineStrategy = '4-title';
+          }
+        }
+
+        debug.headlineMatchCount = domHeadline ? 1 : 0;
+
+        debug.domHeadline = domHeadline.substring(0, 300);
+
+        // ── Photo from DOM — search ENTIRE page, not just one section ──
+        let domPhoto = false;
+        debug.photoStrategy = 'none';
+        // Strategy 1: LinkedIn CDN URL patterns (most reliable)
+        for (const img of document.querySelectorAll('img')) {
+          if (img.src && (
+            img.src.includes('profile-displayphoto') ||
+            img.src.includes('shrink_100_100') ||
+            img.src.includes('shrink_200_200') ||
+            img.src.includes('shrink_400_400') ||
+            img.src.includes('shrink_800_800')
+          )) {
+            domPhoto = true;
+            debug.photoStrategy = '1-cdn-url';
+            break;
+          }
+        }
+        // Strategy 2: Any non-ghost img on media.licdn.com in the top area
+        if (!domPhoto) {
+          for (const img of document.querySelectorAll('img')) {
+            if (img.src && img.src.includes('media.licdn.com') &&
+                !img.src.includes('ghost') && !img.src.includes('company') &&
+                !img.src.includes('default')) {
+              const w = img.naturalWidth || img.width || img.offsetWidth || 0;
+              const ht = img.naturalHeight || img.height || img.offsetHeight || 0;
+              if (w >= 40 && ht >= 40 && Math.abs(w - ht) < w * 0.8) {
+                domPhoto = true;
+                debug.photoStrategy = '2-media-licdn';
+                break;
+              }
+            }
+          }
+        }
+        // Strategy 3: class name patterns anywhere on page
+        if (!domPhoto) {
+          const photoEls = document.querySelectorAll(
+            '[class*="profile-photo"], [class*="avatar"], [class*="presence-entity"], ' +
+            '[class*="pv-top-card-profile-picture"], [class*="profile-picture"]'
+          );
+          for (const el of photoEls) {
+            const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+            if (img?.src && !img.src.includes('ghost') && !img.src.includes('default')) {
+              domPhoto = true;
+              debug.photoStrategy = '3-classname';
+              break;
+            }
+            const bg = getComputedStyle(el).backgroundImage;
+            if (bg && bg !== 'none' && bg.includes('url(') && !bg.includes('ghost')) {
+              domPhoto = true;
+              debug.photoStrategy = '3-classname-bg';
+              break;
+            }
+          }
+        }
+        debug.domPhoto = domPhoto;
+
+        // ── Banner from DOM — search ENTIRE page ──
+        let domBanner = false;
+        debug.bannerStrategy = 'none';
+        // Strategy 1: LinkedIn CDN banner URL pattern
+        for (const img of document.querySelectorAll('img')) {
+          if (img.src && (
+            img.src.includes('profile-displaybackgroundimage') ||
+            img.src.includes('background') && img.src.includes('shrink')
+          )) {
+            domBanner = true;
+            debug.bannerStrategy = '1-cdn-url';
+            break;
+          }
+        }
+        // Strategy 2: class name patterns for banner
+        if (!domBanner) {
+          const bannerEls = document.querySelectorAll(
+            '[class*="profile-background"], [class*="banner"], ' +
+            '[class*="cover-img"], [class*="pv-top-card--photo-resize"]'
+          );
+          for (const el of bannerEls) {
+            const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+            if (img?.src && !img.src.includes('default') && !img.src.includes('ghost')) {
+              domBanner = true;
+              debug.bannerStrategy = '2-classname';
+              break;
+            }
+            const bg = getComputedStyle(el).backgroundImage;
+            if (bg && bg !== 'none' && bg.includes('url(') && !bg.includes('default') && !bg.includes('ghost')) {
+              domBanner = true;
+              debug.bannerStrategy = '2-classname-bg';
+              break;
+            }
+          }
+        }
+        // Strategy 3: wide images anywhere on page (ratio > 2:1, 200px+)
+        if (!domBanner) {
+          for (const img of document.querySelectorAll('img')) {
+            if (!img.src || !img.src.startsWith('http') || img.src.includes('default')) continue;
+            const w = img.naturalWidth || img.width || img.offsetWidth || 0;
+            const ht = img.naturalHeight || img.height || img.offsetHeight || 0;
+            if (w >= 200 && ht > 0 && w > ht * 2) {
+              domBanner = true;
+              debug.bannerStrategy = '3-wide-img';
+              break;
+            }
+          }
+        }
+        // Strategy 4: background-image on any wide div near top of page
+        if (!domBanner) {
+          for (const el of document.querySelectorAll('div, section')) {
+            const bg = getComputedStyle(el).backgroundImage;
+            if (bg && bg !== 'none' && bg.includes('url(') && !bg.includes('default') && !bg.includes('ghost')) {
+              const rect = el.getBoundingClientRect();
+              if (rect.width >= 300 && rect.height >= 50 && rect.width > rect.height * 1.5 && rect.top < 600) {
+                domBanner = true;
+                debug.bannerStrategy = '4-bg-image-div';
+                break;
+              }
+            }
+          }
+        }
+        debug.domBanner = domBanner;
+
+        // Log all section headings for debugging
+        debug.sectionHeadings = sectionTexts.map(s => s.headingText).filter(Boolean);
+
+        result._debug = debug;
+        return result;
+      },
+    });
+
+    const domSections = scrapeRes?.result || {};
+    const debug = domSections._debug || {};
+    delete domSections._debug;
+
+    // Phase 5: merge API data + DOM results
+    // RULE: if EITHER source says it exists, mark as complete. Never let a broken API override DOM.
+    const sections = { ...domSections };
+    const apiHasRealData = apiData && apiData._keys && apiData._keys.length > 3;
+
+    // Photo — true if DOM OR API says it exists
+    const hasPhoto = debug.domPhoto || (apiHasRealData && apiData.hasPhoto);
+    sections.photo = { status: hasPhoto ? 'complete' : 'missing' };
+    debug.photoSource = debug.domPhoto ? 'dom' : (apiHasRealData ? 'api' : 'none');
+
+    // Banner — true if DOM OR API says it exists
+    const hasBanner = debug.domBanner || (apiHasRealData && apiData.hasBanner);
+    sections.banner = { status: hasBanner ? 'complete' : 'missing' };
+    debug.bannerSource = debug.domBanner ? 'dom' : (apiHasRealData ? 'api' : 'none');
+
+    // Headline — use API text if available, else DOM text
+    const headlineText = (apiHasRealData && apiData.headline) ? apiData.headline : (debug.domHeadline || '');
+    debug.headlineApi = (apiData?.headline || '').substring(0, 60);
+    debug.headlineFinal = headlineText.substring(0, 60);
+    debug.headlineSource = (apiHasRealData && apiData.headline) ? 'api' : 'dom';
+    if (!headlineText) sections.headline = { status: 'missing', length: 0 };
+    else if (headlineText.length < 20) sections.headline = { status: 'weak', length: headlineText.length };
+    else sections.headline = { status: 'complete', length: headlineText.length };
+
+    // About — prefer whichever source gives more text
+    if (apiHasRealData && apiData.summary) {
+      const apiAbout = apiData.summary;
+      const domLen = sections.about?.length || 0;
+      if (apiAbout.length > domLen) {
+        debug.aboutApi = apiAbout.length;
+        if (apiAbout.length < 100) sections.about = { status: 'weak', length: apiAbout.length };
+        else sections.about = { status: 'complete', length: apiAbout.length };
+      }
+    }
+
+    debug.apiKeys = apiData?._keys || [];
+    debug.apiPKeys = apiData?._pKeys || [];
+    debug.apiIncludedCount = apiData?._includedCount ?? 0;
+    debug.apiIncludedTypes = apiData?._includedTypes || [];
+    debug.apiError = apiData?._error || '';
+    console.log('[SocialEdge] Profile scrape debug:', JSON.stringify(debug));
+
+    // Generate tips
+    const ssiStored = await chrome.storage.local.get([SSI_HISTORY_KEY]);
+    const latestSSI = (ssiStored[SSI_HISTORY_KEY] || [])[0]?.parsed;
+    const tips = generateProfileTips(sections, latestSSI);
+
+    // Completeness score
+    const allStatuses = Object.values(sections).map(s => s.status);
+    const total = allStatuses.length;
+    const complete = allStatuses.filter(s => s === 'complete').length;
+    const weak = allStatuses.filter(s => s === 'weak').length;
+    const pct = Math.round(((complete + weak * 0.5) / total) * 100);
+
+    const result = {
+      ts: Date.now(),
+      date: new Date().toISOString().split('T')[0],
+      slug,
+      sections,
+      tips,
+      score: { total, complete, weak, missing: total - complete - weak, pct },
+      debug,
+    };
+
+    await chrome.storage.local.set({ [TIPS_KEY]: result });
+    console.log('[SocialEdge] Profile tips generated:', tips.length, 'tips, score:', pct + '%');
+    return result;
+  } catch (e) {
+    console.error('[SocialEdge] Profile tips error:', e.message);
+    return { error: e.message };
+  }
+}
+
+function generateProfileTips(sections, ssi) {
+  const TIPS_DB = [
+    { section: 'photo', status: 'missing', pillar: 'prof_brand', priority: 1, impact: 'high',
+      title: 'Add a professional headshot',
+      desc: 'Profiles with photos get 14x more views. Use a clear, friendly photo with good lighting.' },
+    { section: 'banner', status: 'missing', pillar: 'prof_brand', priority: 2, impact: 'medium',
+      title: 'Upload a custom banner image',
+      desc: 'Replace the default banner with one that reflects your brand, industry, or value proposition.' },
+    { section: 'headline', status: 'missing', pillar: 'prof_brand', priority: 1, impact: 'high',
+      title: 'Add a headline',
+      desc: 'Your headline appears everywhere on LinkedIn. Write one that showcases your expertise and value.' },
+    { section: 'headline', status: 'weak', pillar: 'prof_brand', priority: 1, impact: 'high',
+      title: 'Expand your headline',
+      desc: 'Your headline is short. Go beyond your job title — include your specialty and the value you bring (aim for 80+ characters).' },
+    { section: 'about', status: 'missing', pillar: 'prof_brand', priority: 1, impact: 'high',
+      title: 'Write an About section',
+      desc: "It's your elevator pitch. Explain who you help, how you help them, and what makes you different." },
+    { section: 'about', status: 'weak', pillar: 'prof_brand', priority: 1, impact: 'high',
+      title: 'Expand your About section',
+      desc: 'Your About is under 100 characters. Aim for 300+ words with industry keywords to boost search visibility.' },
+    { section: 'experience', status: 'missing', pillar: 'prof_brand', priority: 1, impact: 'high',
+      title: 'Add your work experience',
+      desc: 'Experience entries are essential for credibility. Include descriptions with quantified achievements.' },
+    { section: 'education', status: 'missing', pillar: 'prof_brand', priority: 2, impact: 'medium',
+      title: 'Add your education',
+      desc: 'Education builds credibility and helps alumni find you.' },
+    { section: 'skills', status: 'missing', pillar: 'find_right_people', priority: 1, impact: 'high',
+      title: 'Add skills to your profile',
+      desc: 'Skills boost your ranking in LinkedIn search. Add at least 10 relevant skills.' },
+    { section: 'skills', status: 'weak', pillar: 'find_right_people', priority: 2, impact: 'medium',
+      title: 'Add more skills',
+      desc: 'You have fewer than 5 skills listed. Profiles with 5+ skills get up to 17x more profile views.' },
+    { section: 'certifications', status: 'missing', pillar: 'prof_brand', priority: 3, impact: 'low',
+      title: 'Add certifications & licenses',
+      desc: 'Certifications signal expertise. Add relevant ones to stand out from competitors.' },
+    { section: 'recommendations', status: 'missing', pillar: 'relationship', priority: 2, impact: 'high',
+      title: 'Get recommendations',
+      desc: 'Recommendations are powerful social proof. Ask colleagues and clients for specific, detailed recommendations.' },
+    { section: 'recommendations', status: 'weak', pillar: 'relationship', priority: 2, impact: 'medium',
+      title: 'Get more recommendations',
+      desc: 'You have fewer than 3 recommendations. Aim for 5+ to build stronger social proof.' },
+    { section: 'featured', status: 'missing', pillar: 'insight_engagement', priority: 2, impact: 'medium',
+      title: 'Add featured content',
+      desc: 'Showcase your best posts, articles, links, or media in the Featured section to make a strong first impression.' },
+    { section: 'volunteer', status: 'missing', pillar: 'relationship', priority: 3, impact: 'low',
+      title: 'Add volunteer experience',
+      desc: 'Volunteer work signals values and broadens your network. 41% of hiring managers consider it equal to work experience.' },
+    { section: 'publications', status: 'missing', pillar: 'insight_engagement', priority: 3, impact: 'low',
+      title: 'Add publications',
+      desc: 'If you\'ve written articles or papers, add them to demonstrate thought leadership.' },
+    { section: 'projects', status: 'missing', pillar: 'prof_brand', priority: 3, impact: 'low',
+      title: 'Showcase projects',
+      desc: 'Add relevant projects to demonstrate hands-on experience and real-world results.' },
+  ];
+
+  // Find weakest pillar to boost priority for those tips
+  let weakestPillar = null;
+  if (ssi) {
+    const pillarScores = {
+      prof_brand: ssi.prof_brand ?? 25,
+      find_right_people: ssi.find_right_people ?? 25,
+      insight_engagement: ssi.insight_engagement ?? 25,
+      relationship: ssi.relationship ?? 25,
+    };
+    weakestPillar = Object.entries(pillarScores).sort((a, b) => a[1] - b[1])[0][0];
+  }
+
+  const tips = [];
+  for (const tip of TIPS_DB) {
+    const sec = sections[tip.section];
+    if (sec && sec.status === tip.status) {
+      const t = { ...tip };
+      // Boost priority for tips that help the weakest pillar
+      if (weakestPillar && tip.pillar === weakestPillar && t.priority > 1) {
+        t.priority = Math.max(1, t.priority - 1);
+        t.boosted = true;
+      }
+      tips.push(t);
+    }
+  }
+
+  tips.sort((a, b) => a.priority - b.priority);
+  return tips.slice(0, 10);
+}
+
 // ── Message handler ───────────────────────────────────────────────────────────
+// ── Job Suggestions ─────────────────────────────────────────────────────────
+const JOBS_KEY = 'jobSuggestions';
+
+async function fetchJobSuggestions() {
+  console.log('[SocialEdge][Jobs] Starting job fetch...');
+  const tabs = await chrome.tabs.query({ url: '*://*.linkedin.com/*' });
+  if (!tabs.length) return { error: 'Open a LinkedIn tab, then try again.' };
+
+  const tabId = tabs[0].id;
+  const originalUrl = tabs[0].url || '';
+  console.log('[SocialEdge][Jobs] Tab:', tabId, 'URL:', originalUrl);
+
+  try {
+    // Navigate to LinkedIn Recommended Jobs page (not generic /jobs/ search page)
+    const jobsUrl = 'https://www.linkedin.com/jobs/collections/recommended/';
+    const needsNav = !originalUrl.includes('/jobs/collections/recommended');
+    if (needsNav) {
+      console.log('[SocialEdge][Jobs] Navigating to jobs page...');
+      await chrome.tabs.update(tabId, { url: jobsUrl });
+      await new Promise((resolve) => {
+        const listener = (tId, info) => {
+          if (tId === tabId && info.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+        setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 15000);
+      });
+      // Wait extra time for React to hydrate and render job cards
+      await new Promise(r => setTimeout(r, 7000));
+      console.log('[SocialEdge][Jobs] Navigation done, waited 7s');
+    }
+
+    // Scroll to trigger lazy-loading of job cards
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        // Scroll down in the jobs list container (not just window)
+        const scrollTargets = [
+          document.querySelector('.jobs-search-results-list'),
+          document.querySelector('.scaffold-layout__list'),
+          document.querySelector('[class*="jobs-search-results"]'),
+          window,
+        ].filter(Boolean);
+        for (let step = 0; step < 8; step++) {
+          const y = step * 400;
+          for (const t of scrollTargets) {
+            if (t === window) window.scrollTo(0, y);
+            else t.scrollTop = y;
+          }
+          await new Promise(r => setTimeout(r, 400));
+        }
+        // Scroll back to top
+        window.scrollTo(0, 0);
+        await new Promise(r => setTimeout(r, 600));
+      },
+    });
+    console.log('[SocialEdge][Jobs] Scrolling done');
+
+    // Scrape job cards from the DOM
+    const [scrapeRes] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const jobs = [];
+        const seen = new Set();
+        const debug = {};
+
+        debug.url = window.location.href;
+        debug.title = document.title;
+
+        // Helper: get clean text from element
+        function cleanText(el) {
+          if (!el) return '';
+          return el.textContent.trim().replace(/\s+/g, ' ');
+        }
+
+        // Find all job view links on the page
+        const allAnchors = [...document.querySelectorAll('a[href*="/jobs/view/"]')];
+        debug.totalAnchors = document.querySelectorAll('a').length;
+        debug.jobViewLinks = allAnchors.length;
+        debug.sampleLinks = allAnchors.slice(0, 3).map(a => a.getAttribute('href')?.substring(0, 80));
+
+        // Also count container-level job elements for diagnostics
+        const jobCardEls = document.querySelectorAll(
+          '[data-occludable-job-id], [data-job-id], [class*="job-card-container"], ' +
+          '[class*="job-card-list"], li[class*="scaffold-layout"]'
+        );
+        debug.jobCardElements = jobCardEls.length;
+        const listItems = document.querySelectorAll('ul[class*="scaffold"] li, ul[class*="jobs-search"] li');
+        debug.jobListItems = listItems.length;
+
+        // Approach 1: links with /jobs/view/
+        for (const link of allAnchors) {
+          const href = link.getAttribute('href') || '';
+          const match = href.match(/\/jobs\/view\/(\d+)/);
+          if (!match) continue;
+          const jobId = match[1];
+          if (seen.has(jobId)) continue;
+          seen.add(jobId);
+
+          // Walk up to find the best card container
+          const card = link.closest('[data-occludable-job-id]')
+            || link.closest('[data-job-id]')
+            || link.closest('li')
+            || link.closest('[class*="job-card"]')
+            || link.closest('[class*="artdeco-entity-lockup"]')
+            || link.parentElement?.parentElement?.parentElement
+            || link.parentElement;
+
+          // Extract title — link text is most reliable, then fallbacks
+          let title = '';
+          const titleCandidates = [
+            link.querySelector('span[aria-hidden="true"]'),
+            link.querySelector('strong'),
+            link,
+            card?.querySelector('[class*="job-card-list__title"]'),
+            card?.querySelector('[class*="title"]'),
+            card?.querySelector('strong'),
+            card?.querySelector('span[dir="ltr"]'),
+          ].filter(Boolean);
+          for (const el of titleCandidates) {
+            const t = cleanText(el);
+            if (t.length >= 3 && t.length <= 150) { title = t; break; }
+          }
+          if (!title) continue;
+
+          // Extract company
+          let company = '';
+          const companyCandidates = [
+            card?.querySelector('[class*="subtitle"]'),
+            card?.querySelector('[class*="primary-description"]'),
+            card?.querySelector('[class*="company-name"]'),
+            card?.querySelector('[class*="entity-lockup__subtitle"] span'),
+            card?.querySelector('[class*="job-card-container__company-name"]'),
+          ].filter(Boolean);
+          for (const el of companyCandidates) {
+            const t = cleanText(el);
+            if (t.length >= 2 && t.length <= 100 && !t.match(/^\d+ (hour|day|week|month)/i)) {
+              company = t; break;
+            }
+          }
+
+          // Extract location
+          let location = '';
+          const locCandidates = [
+            card?.querySelector('[class*="caption"]'),
+            card?.querySelector('[class*="metadata-item"]'),
+            card?.querySelector('[class*="job-card-container__metadata-item"]'),
+            card?.querySelector('[class*="location"]'),
+          ].filter(Boolean);
+          for (const el of locCandidates) {
+            const t = cleanText(el);
+            if (t.length >= 2 && t.length <= 100) { location = t; break; }
+          }
+
+          // Extract logo
+          let logo = '';
+          const logoImg = card?.querySelector('img');
+          if (logoImg?.src && !logoImg.src.includes('ghost') && !logoImg.src.includes('data:') && !logoImg.src.includes('profile-displayphoto')) {
+            logo = logoImg.src;
+          }
+
+          // Check remote/hybrid
+          const cardText = (card?.textContent || '').toLowerCase();
+          const isRemote = cardText.includes('remote') || cardText.includes('hybrid');
+
+          // Extract time posted
+          let timeText = '';
+          const timeEl = card?.querySelector('time');
+          if (timeEl) {
+            timeText = cleanText(timeEl);
+          } else {
+            const timeMatch = cardText.match(/(\d+\s*(minute|hour|day|week|month)s?\s*ago)/i);
+            if (timeMatch) timeText = timeMatch[1];
+          }
+
+          jobs.push({
+            id: jobId,
+            title: title.substring(0, 120),
+            company: company.substring(0, 80),
+            location: location.substring(0, 80),
+            url: `https://www.linkedin.com/jobs/view/${jobId}/`,
+            logo,
+            timeText,
+            workRemoteAllowed: isRemote,
+          });
+
+          if (jobs.length >= 10) break;
+        }
+
+        // Approach 2: If no /jobs/view/ links, try scraping text from any job-related list
+        if (!jobs.length && listItems.length) {
+          debug.approach2 = true;
+          for (const li of listItems) {
+            const link = li.querySelector('a[href*="/jobs/"]');
+            if (!link) continue;
+            const href = link.getAttribute('href') || '';
+            const idMatch = href.match(/(\d{8,})/);
+            if (!idMatch) continue;
+            const jobId = idMatch[1];
+            if (seen.has(jobId)) continue;
+            seen.add(jobId);
+
+            const title = (li.querySelector('strong') || li.querySelector('[class*="title"]') || link).textContent.trim().replace(/\s+/g, ' ');
+            if (!title || title.length < 3) continue;
+
+            jobs.push({
+              id: jobId,
+              title: title.substring(0, 120),
+              company: '',
+              location: '',
+              url: `https://www.linkedin.com/jobs/view/${jobId}/`,
+              logo: '',
+              timeText: '',
+              workRemoteAllowed: false,
+            });
+            if (jobs.length >= 10) break;
+          }
+        }
+
+        debug.jobsFound = jobs.length;
+        return { jobs, debug };
+      },
+    });
+    console.log('[SocialEdge][Jobs] Scrape result:', JSON.stringify(scrapeRes?.result?.debug));
+
+    // Navigate back to original page
+    if (needsNav && originalUrl.includes('linkedin.com')) {
+      chrome.tabs.update(tabId, { url: originalUrl }).catch(() => {});
+    }
+
+    const result = scrapeRes?.result || {};
+    const jobs = result.jobs || [];
+
+    const stored = {
+      ts: Date.now(),
+      date: new Date().toISOString().split('T')[0],
+      jobs,
+      debug: result.debug || {},
+    };
+    await chrome.storage.local.set({ [JOBS_KEY]: stored });
+    console.log('[SocialEdge][Jobs] Stored', jobs.length, 'jobs');
+    return stored;
+  } catch (e) {
+    console.error('[SocialEdge][Jobs] Error:', e.message, e.stack);
+    // Try to navigate back
+    if (originalUrl.includes('linkedin.com') && !originalUrl.includes('/jobs')) {
+      chrome.tabs.update(tabId, { url: originalUrl }).catch(() => {});
+    }
+    return { error: e.message };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'fetchNow') {
     runFetch().then(sendResponse);
@@ -1025,8 +1992,63 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     });
     return true;
   }
+  if (msg.action === 'swapQuestItem') {
+    chrome.storage.local.get([QUEST_KEY], (r) => {
+      const quest = r[QUEST_KEY];
+      if (!quest) return sendResponse(null);
+      const idx = quest.items.findIndex(i => i.id === msg.itemId);
+      if (idx === -1) return sendResponse(quest);
+      const old = quest.items[idx];
+
+      // Build pool of same-difficulty alternatives, excluding current quest items
+      const currentIds = new Set(quest.items.map(i => i.id));
+      const candidates = [];
+      for (const [pillar, items] of Object.entries(ALL_ACTIVITIES)) {
+        items.forEach((item, i) => {
+          const id = `${pillar}:${i}`;
+          if (item.difficulty === old.difficulty && !currentIds.has(id)) {
+            candidates.push({ id, pillar, idx: i, label: item.label, difficulty: item.difficulty });
+          }
+        });
+      }
+      if (!candidates.length) return sendResponse(quest);
+
+      // Pick a random one
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      quest.items[idx] = {
+        id: pick.id,
+        pillar: pick.pillar,
+        pillarName: PILLAR_NAMES[pick.pillar],
+        idx: pick.idx,
+        label: pick.label,
+        difficulty: pick.difficulty,
+        done: false,
+      };
+      chrome.storage.local.set({ [QUEST_KEY]: quest }, () => {
+        updateQuestBadge(quest);
+        sendResponse(quest);
+      });
+    });
+    return true;
+  }
   if (msg.action === 'getStreak') {
     getActivityStreak().then(sendResponse);
+    return true;
+  }
+  if (msg.action === 'fetchProfileTips') {
+    replayProfileTips().then(sendResponse);
+    return true;
+  }
+  if (msg.action === 'getProfileTips') {
+    chrome.storage.local.get([TIPS_KEY], (r) => sendResponse(r[TIPS_KEY] || null));
+    return true;
+  }
+  if (msg.action === 'fetchJobs') {
+    fetchJobSuggestions().then(sendResponse);
+    return true;
+  }
+  if (msg.action === 'getJobs') {
+    chrome.storage.local.get([JOBS_KEY], (r) => sendResponse(r[JOBS_KEY] || null));
     return true;
   }
   if (msg.action === 'dismissQuest') {

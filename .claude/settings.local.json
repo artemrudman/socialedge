@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(taskkill /F /IM node.exe)"
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(node -e \"try { new Function\\(require\\(''fs''\\).readFileSync\\(''D:/LI SSI Fetcher Analyser/extension/popup.js'', ''utf8''\\)\\); console.log\\(''OK''\\); } catch\\(e\\) { console.log\\(''ERROR:'', e.message.substring\\(0, 200\\)\\); }\")",
+      "Bash(node -e \"try { new Function\\(require\\(''fs''\\).readFileSync\\(''D:/LI SSI Fetcher Analyser/extension/background.js'', ''utf8''\\)\\); console.log\\(''background.js OK''\\); } catch\\(e\\) { console.log\\(''ERROR:'', e.message.substring\\(0, 200\\)\\); }\")",
+      "Bash(node -e \"try { new Function\\(require\\(''fs''\\).readFileSync\\(''D:/LI SSI Fetcher Analyser/extension/popup.js'', ''utf8''\\)\\); console.log\\(''popup.js OK''\\); } catch\\(e\\) { console.log\\(''ERROR:'', e.message.substring\\(0, 200\\)\\); }\")"
     ]
   }
 }

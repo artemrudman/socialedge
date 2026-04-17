@@ -608,6 +608,8 @@ const DASH_TAB_MAP = {
   quest: "quest-screen",
   history: "history-screen",
   analytics: "analytics-screen",
+  tips: "tips-screen",
+  jobs: "jobs-screen",
 };
 let _wideInited = false;
 let _activeDashTab = "quest";
@@ -620,12 +622,21 @@ function switchDashTab(tab) {
   });
   // Show/hide panels
   for (const [key, id] of Object.entries(DASH_TAB_MAP)) {
-    $(id).classList.toggle("dash-active", key === tab);
+    const el = $(id);
+    if (el) el.classList.toggle("dash-active", key === tab);
   }
   // Lazy-load analytics on first view
   if (tab === "analytics" && !_wideInited) {
     _wideInited = true;
     loadAnalytics();
+  }
+  // Lazy-load tips on first view
+  if (tab === "tips") {
+    loadProfileTips();
+  }
+  // Lazy-load jobs on first view
+  if (tab === "jobs") {
+    loadJobs();
   }
 }
 
@@ -637,16 +648,17 @@ document.querySelectorAll(".dash-tab").forEach(btn => {
 function applyWideMode() {
   if (isWideMode()) {
     // Open panels (needed for JS that checks .open)
-    $("quest-screen").classList.add("open");
-    $("history-screen").classList.add("open");
-    $("analytics-screen").classList.add("open");
+    for (const id of Object.values(DASH_TAB_MAP)) {
+      const el = $(id);
+      if (el) el.classList.add("open");
+    }
     switchDashTab(_activeDashTab);
     loadAnalytics();
   } else {
-    // Going back to narrow — close all overlay panels
-    $("quest-screen").classList.remove("open", "dash-active");
-    $("history-screen").classList.remove("open", "dash-active");
-    $("analytics-screen").classList.remove("open", "dash-active");
+    for (const id of Object.values(DASH_TAB_MAP)) {
+      const el = $(id);
+      if (el) el.classList.remove("open", "dash-active");
+    }
     _wideInited = false;
   }
 }
@@ -691,6 +703,14 @@ function renderQuest(quest) {
           ${item.difficulty ? `<span class="dq-difficulty dq-diff-${item.difficulty}">${DIFF_LABELS[item.difficulty - 1]}</span>` : ''}
         </div>
       </div>
+      <button class="dq-swap-btn${item.done ? ' hidden' : ''}" data-swap-id="${item.id}" title="Swap for another task">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M11.5 1.5L14 4l-2.5 2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 4h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M4.5 14.5L2 12l2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M14 12H2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
   `).join("");
 
@@ -701,9 +721,12 @@ function renderQuest(quest) {
     doneEl.classList.add("hidden");
   }
 
-  // Click handlers
+  // Click handlers — checkbox toggle
   itemsEl.querySelectorAll(".dq-item").forEach(el => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", (e) => {
+      // Ignore clicks on the swap button
+      if (e.target.closest('.dq-swap-btn')) return;
+
       const id = el.dataset.questId;
       const item = quest.items.find(i => i.id === id);
       if (!item) return;
@@ -723,6 +746,18 @@ function renderQuest(quest) {
       renderQuest(quest);
       // Refresh streak after toggling
       chrome.runtime.sendMessage({ action: "getStreak" }, (s) => updateStreak(s || 0));
+    });
+  });
+
+  // Click handlers — swap button
+  itemsEl.querySelectorAll(".dq-swap-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.swapId;
+      btn.classList.add("swapping");
+      chrome.runtime.sendMessage({ action: "swapQuestItem", itemId: id }, (updated) => {
+        if (updated) renderQuest(updated);
+      });
     });
   });
 }
@@ -1259,7 +1294,6 @@ function doExport() {
   });
 }
 
-$("btn-export-main").addEventListener("click", doExport);
 $("btn-export-history").addEventListener("click", doExport);
 
 // ── Analytics screen ──────────────────────────────────────────────────────────
@@ -1687,6 +1721,178 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// ── Profile Tips screen ──────────────────────────────────────────────────────
+const tipsScreen = $("tips-screen");
+
+$("btn-tips").addEventListener("click", () => {
+  tipsScreen.classList.add("open");
+  loadProfileTips();
+});
+$("tips-back-btn").addEventListener("click", () =>
+  tipsScreen.classList.remove("open"),
+);
+
+const TIPS_BTN_HTML = `${REFRESH_SVG} Analyze`;
+$("tips-refresh-btn").addEventListener("click", () => {
+  const btn = $("tips-refresh-btn");
+  if (btn.classList.contains('loading')) return;
+  btn.classList.add('loading');
+  btn.innerHTML = `${REFRESH_SVG} Analyzing…`;
+
+  chrome.runtime.sendMessage({ action: "fetchProfileTips" }, (result) => {
+    btn.classList.remove('loading');
+    if (!result || result.error) {
+      btn.innerHTML = `${REFRESH_SVG} Try again`;
+      // Show error in status bar
+      const bar = $("status-bar");
+      bar.textContent = result?.error || 'Could not analyze profile.';
+      bar.classList.remove("hidden");
+      setTimeout(() => bar.classList.add("hidden"), 6000);
+      setTimeout(() => { btn.innerHTML = TIPS_BTN_HTML; }, 3000);
+      return;
+    }
+    btn.innerHTML = `${CHECK_SVG} Done`;
+    setTimeout(() => { btn.innerHTML = TIPS_BTN_HTML; }, 2000);
+    renderProfileTips(result);
+  });
+});
+
+const PILLAR_LABELS = {
+  prof_brand: 'Professional Brand',
+  find_right_people: 'Find Right People',
+  insight_engagement: 'Insight Engagement',
+  relationship: 'Relationships',
+};
+
+function loadProfileTips() {
+  chrome.runtime.sendMessage({ action: "getProfileTips" }, (data) => {
+    if (data && data.tips) renderProfileTips(data);
+  });
+}
+
+const SECTION_NAMES = {
+  photo: 'Profile Photo',
+  banner: 'Banner Image',
+  headline: 'Headline',
+  about: 'About',
+  experience: 'Experience',
+  education: 'Education',
+  skills: 'Skills',
+  certifications: 'Certifications',
+  recommendations: 'Recommendations',
+  featured: 'Featured',
+  activity: 'Activity',
+  volunteer: 'Volunteer',
+  projects: 'Projects',
+  publications: 'Publications',
+};
+
+const STATUS_ICONS = {
+  complete: '✓',
+  weak: '!',
+  missing: '✗',
+};
+
+function renderProfileTips(data) {
+  const emptyEl = $("tips-empty");
+  const contentEl = $("tips-content");
+  const listEl = $("tips-list");
+  const listTitle = $("tips-list-title");
+  const sectionsEl = $("tips-sections");
+  const statsEl = $("tips-gauge-stats");
+  const pctEl = $("tips-gauge-pct");
+  const arcEl = $("tips-gauge-arc");
+
+  if (!data || !data.tips) {
+    emptyEl.style.display = "";
+    contentEl.classList.add("hidden");
+    return;
+  }
+
+  emptyEl.style.display = "none";
+  contentEl.classList.remove("hidden");
+
+  // Gauge
+  const score = data.score || { pct: 0, complete: 0, weak: 0, missing: 0 };
+  const pct = score.pct;
+  const circumference = 2 * Math.PI * 52; // ~326.7
+  const dashLen = (pct / 100) * circumference;
+  arcEl.setAttribute("stroke-dasharray", `${dashLen} ${circumference}`);
+
+  // Gauge color
+  if (pct >= 80) arcEl.setAttribute("stroke", "var(--green)");
+  else if (pct >= 50) arcEl.setAttribute("stroke", "var(--amber)");
+  else arcEl.setAttribute("stroke", "var(--red)");
+
+  pctEl.textContent = pct + "%";
+
+  statsEl.innerHTML = `
+    <div class="tips-stat-row"><span class="tips-stat-dot complete"></span>${score.complete} complete</div>
+    <div class="tips-stat-row"><span class="tips-stat-dot weak"></span>${score.weak} needs work</div>
+    <div class="tips-stat-row"><span class="tips-stat-dot missing"></span>${score.missing} missing</div>
+  `;
+
+  // Sections overview — show all sections with status
+  if (data.sections) {
+    sectionsEl.innerHTML = Object.entries(data.sections)
+      .filter(([key]) => SECTION_NAMES[key])
+      .map(([key, sec]) => {
+        const st = sec.status || 'missing';
+        return `<div class="tips-sec-item">
+          <span class="tips-sec-icon ${st}">${STATUS_ICONS[st]}</span>
+          <span>${SECTION_NAMES[key]}</span>
+        </div>`;
+      }).join('');
+  }
+
+  // Tips list
+  if (!data.tips.length) {
+    listTitle.style.display = 'none';
+    listEl.innerHTML = `<div style="text-align:center;color:var(--green);padding:20px;font-weight:600;">
+      Your profile looks great! No major improvements needed.
+    </div>`;
+    return;
+  }
+
+  listTitle.style.display = '';
+  listEl.innerHTML = data.tips.map(tip => `
+    <div class="tip-card">
+      <div class="tip-card-header">
+        <span class="tip-card-title">${tip.title}</span>
+        <span class="tip-impact ${tip.impact}">${tip.impact}</span>
+      </div>
+      <div class="tip-card-desc">${tip.desc}</div>
+      <div class="tip-card-meta">
+        <span class="tip-pillar-badge">${PILLAR_LABELS[tip.pillar] || tip.pillar}</span>
+        ${tip.boosted ? '<span class="tip-boosted">&#9889; Priority boost</span>' : ''}
+      </div>
+    </div>
+  `).join('');
+
+  // Debug diagnostics (collapsible) — helps fix detection issues
+  const debugEl = document.getElementById('tips-debug');
+  if (debugEl && data.debug) {
+    const d = data.debug;
+    const lines = Object.entries(d)
+      .filter(([k]) => k !== 'pageIds')
+      .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+      .join('\n');
+    const idList = (d.pageIds || []).join(', ');
+    debugEl.innerHTML = `<details class="tips-debug-details">
+      <summary>Diagnostics</summary>
+      <pre class="tips-debug-pre">${lines}\n\npageIds: ${idList}</pre>
+    </details>`;
+  }
+}
+
+// Live-refresh tips when background stores new data
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.profileTips) {
+    const data = changes.profileTips.newValue;
+    if (data && data.tips) renderProfileTips(data);
+  }
+});
+
 // ── Day / Night theme ─────────────────────────────────────────────────────────
 function setThemeHint(isDay) {
   const el = $("theme-hint");
@@ -1740,8 +1946,8 @@ function updateAuthUI() {
   const pro = Auth.isPro();
 
   // Update header user button
-  userBtn.classList.toggle("logged-in", loggedIn);
-  userBtn.classList.toggle("is-pro", pro);
+  if (userBtn) userBtn.classList.toggle("logged-in", loggedIn);
+  if (userBtn) userBtn.classList.toggle("is-pro", pro);
   const initialsEl = $("user-btn-initials");
   if (loggedIn && user) {
     initialsEl.textContent = getInitials(user.name);
@@ -1795,122 +2001,227 @@ function updateAuthUI() {
 }
 
 // Open / close auth screen
-userBtn.addEventListener("click", () => {
+if (userBtn) userBtn.addEventListener("click", () => {
   updateAuthUI();
-  authScreen.classList.add("open");
+  if (authScreen) authScreen.classList.add("open");
 });
-$("auth-back-btn").addEventListener("click", () => {
-  authScreen.classList.remove("open");
-});
+// Auth UI only wires up when the auth-screen is present in the DOM
+// (it's currently commented out in HTML — guard prevents null crashes)
+if (authScreen) {
+  $("auth-back-btn").addEventListener("click", () => {
+    authScreen.classList.remove("open");
+  });
 
-// Tab switching
-tabLogin.addEventListener("click", () => {
-  tabLogin.classList.add("active");
-  tabRegister.classList.remove("active");
-  loginForm.classList.remove("hidden");
-  registerForm.classList.add("hidden");
-  $("login-error").classList.add("hidden");
-});
-tabRegister.addEventListener("click", () => {
-  tabRegister.classList.add("active");
-  tabLogin.classList.remove("active");
-  registerForm.classList.remove("hidden");
-  loginForm.classList.add("hidden");
-  $("register-error").classList.add("hidden");
-});
+  // Tab switching
+  if (tabLogin) tabLogin.addEventListener("click", () => {
+    tabLogin.classList.add("active");
+    tabRegister.classList.remove("active");
+    loginForm.classList.remove("hidden");
+    registerForm.classList.add("hidden");
+    $("login-error").classList.add("hidden");
+  });
+  if (tabRegister) tabRegister.addEventListener("click", () => {
+    tabRegister.classList.add("active");
+    tabLogin.classList.remove("active");
+    registerForm.classList.remove("hidden");
+    loginForm.classList.add("hidden");
+    $("register-error").classList.add("hidden");
+  });
 
-// Login form submit
-loginForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const email = $("login-email").value.trim();
-  const password = $("login-password").value;
-  const errEl = $("login-error");
-  const submitBtn = loginForm.querySelector(".auth-submit");
+  // Login form submit
+  if (loginForm) loginForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = $("login-email").value.trim();
+    const password = $("login-password").value;
+    const errEl = $("login-error");
+    const submitBtn = loginForm.querySelector(".auth-submit");
+    errEl.classList.add("hidden");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in\u2026";
+    try {
+      await Auth.login(email, password);
+      loginForm.reset();
+      updateAuthUI();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove("hidden");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign In";
+    }
+  });
 
-  errEl.classList.add("hidden");
-  submitBtn.disabled = true;
-  submitBtn.textContent = "Signing in\u2026";
+  // Register form submit
+  if (registerForm) registerForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("register-name").value.trim();
+    const email = $("register-email").value.trim();
+    const password = $("register-password").value;
+    const errEl = $("register-error");
+    const submitBtn = registerForm.querySelector(".auth-submit");
+    errEl.classList.add("hidden");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Creating account\u2026";
+    try {
+      await Auth.register(name, email, password);
+      registerForm.reset();
+      updateAuthUI();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove("hidden");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Create Account";
+    }
+  });
 
-  try {
-    await Auth.login(email, password);
-    loginForm.reset();
+  // Google Sign-In
+  const googleBtn = $("auth-google-btn");
+  if (googleBtn) googleBtn.addEventListener("click", async () => {
+    const btn = $("auth-google-btn");
+    const errEl = $("auth-google-error");
+    errEl.classList.add("hidden");
+    btn.disabled = true;
+    btn.querySelector(".google-icon").style.display = "none";
+    btn.innerHTML = `<span class="btn-spinner"></span> Signing in\u2026`;
+    try {
+      await Auth.loginWithGoogle();
+      updateAuthUI();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove("hidden");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `<svg class="google-icon" width="16" height="16" viewBox="0 0 48 48">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      </svg> Continue with Google`;
+    }
+  });
+
+  // Skip / continue without account
+  const authSkip = $("auth-skip");
+  if (authSkip) authSkip.addEventListener("click", () => {
+    authScreen.classList.remove("open");
+  });
+
+  // Logout
+  const authLogout = $("auth-logout-btn");
+  if (authLogout) authLogout.addEventListener("click", async () => {
+    await Auth.logout();
     updateAuthUI();
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove("hidden");
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = "Sign In";
-  }
-});
-
-// Register form submit
-registerForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = $("register-name").value.trim();
-  const email = $("register-email").value.trim();
-  const password = $("register-password").value;
-  const errEl = $("register-error");
-  const submitBtn = registerForm.querySelector(".auth-submit");
-
-  errEl.classList.add("hidden");
-  submitBtn.disabled = true;
-  submitBtn.textContent = "Creating account\u2026";
-
-  try {
-    await Auth.register(name, email, password);
-    registerForm.reset();
-    updateAuthUI();
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove("hidden");
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = "Create Account";
-  }
-});
-
-// Google Sign-In
-$("auth-google-btn").addEventListener("click", async () => {
-  const btn = $("auth-google-btn");
-  const errEl = $("auth-google-error");
-  errEl.classList.add("hidden");
-  btn.disabled = true;
-  btn.querySelector(".google-icon").style.display = "none";
-  const origText = btn.textContent;
-  btn.innerHTML = `<span class="btn-spinner"></span> Signing in\u2026`;
-
-  try {
-    await Auth.loginWithGoogle();
-    updateAuthUI();
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove("hidden");
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = `<svg class="google-icon" width="16" height="16" viewBox="0 0 48 48">
-      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-      <path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/>
-      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-    </svg> Continue with Google`;
-  }
-});
-
-// Skip / continue without account
-$("auth-skip").addEventListener("click", () => {
-  authScreen.classList.remove("open");
-});
-
-// Logout
-$("auth-logout-btn").addEventListener("click", async () => {
-  await Auth.logout();
-  updateAuthUI();
-  authScreen.classList.remove("open");
-});
+    authScreen.classList.remove("open");
+  });
+}
 
 // Init auth on load
 Auth.init().then(() => updateAuthUI());
+
+// ── Jobs Suggestions ───────────────────────────────────────────────────────────
+let _jobsLoaded = false;
+
+function loadJobs() {
+  chrome.runtime.sendMessage({ action: "getJobs" }, (data) => {
+    if (data && data.jobs?.length) {
+      renderJobs(data);
+      _jobsLoaded = true;
+    }
+  });
+}
+
+function renderJobs(data) {
+  const emptyEl = $("jobs-empty");
+  const listEl = $("jobs-list");
+  const footerEl = $("jobs-footer");
+  if (!emptyEl || !listEl || !footerEl) return;
+
+  if (!data?.jobs?.length) {
+    emptyEl.classList.remove("hidden");
+    listEl.classList.add("hidden");
+    footerEl.classList.add("hidden");
+    return;
+  }
+
+  emptyEl.classList.add("hidden");
+  listEl.classList.remove("hidden");
+  footerEl.classList.remove("hidden");
+
+  listEl.innerHTML = data.jobs.map((job, i) => {
+    const remoteBadge = job.workRemoteAllowed
+      ? '<span class="job-badge job-remote">Remote</span>'
+      : '';
+    const timeStr = job.timeText || '';
+    const timeBadge = timeStr ? `<span class="job-time">${timeStr}</span>` : '';
+    const logoHtml = job.logo
+      ? `<img class="job-logo" src="${job.logo}" alt="" onerror="this.style.display='none'">`
+      : `<div class="job-logo job-logo-placeholder">
+           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+             <rect x="3" y="6" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
+             <path d="M7 6V5a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+           </svg>
+         </div>`;
+
+    return `<a class="job-card" href="${job.url}" target="_blank" rel="noopener">
+      ${logoHtml}
+      <div class="job-card-body">
+        <div class="job-title">${job.title}</div>
+        <div class="job-company">${job.company}</div>
+        <div class="job-meta">
+          ${job.location ? `<span class="job-location">${job.location}</span>` : ''}
+          ${remoteBadge}
+          ${timeBadge}
+        </div>
+      </div>
+      <svg class="job-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>`;
+  }).join("");
+}
+
+// Jobs refresh button
+if ($("jobs-refresh-btn")) {
+  $("jobs-refresh-btn").addEventListener("click", () => {
+    const icon = $("jobs-refresh-icon");
+    if (icon) icon.classList.add("spinning");
+    const emptyEl = $("jobs-empty");
+    if (emptyEl) {
+      emptyEl.innerHTML = '<p style="color:var(--text-3);font-size:13px">Fetching job suggestions from LinkedIn...</p>';
+      emptyEl.classList.remove("hidden");
+    }
+    const listEl = $("jobs-list");
+    const footerEl = $("jobs-footer");
+    if (listEl) listEl.classList.add("hidden");
+    if (footerEl) footerEl.classList.add("hidden");
+
+    chrome.runtime.sendMessage({ action: "fetchJobs" }, (data) => {
+      if (icon) icon.classList.remove("spinning");
+      if (data?.error) {
+        if (emptyEl) emptyEl.innerHTML = `<p style="color:var(--red);font-size:13px">${data.error}</p>`;
+        return;
+      }
+      if (!data?.jobs?.length) {
+        const d = data?.debug || {};
+        if (emptyEl) emptyEl.innerHTML = `<p style="color:var(--text-3);font-size:13px">No job recommendations found. Try visiting <a href="https://www.linkedin.com/jobs/" target="_blank" style="color:var(--green)">LinkedIn Jobs</a> first.</p>
+          <details style="margin-top:12px;font-size:11px;color:var(--text-3)">
+            <summary style="cursor:pointer">Debug info</summary>
+            <pre style="white-space:pre-wrap;margin-top:4px;text-align:left">${JSON.stringify(d, null, 2)}</pre>
+          </details>`;
+        return;
+      }
+      renderJobs(data);
+    });
+  });
+}
+
+// Jobs back button (narrow mode)
+if ($("jobs-back-btn")) {
+  $("jobs-back-btn").addEventListener("click", () => {
+    $("jobs-screen").classList.remove("open");
+  });
+}
 
 // ── Onboarding Walkthrough ──────────────────────────────────────────────────────
 const OB_KEY = "_se_onboardDone";
@@ -1968,12 +2279,11 @@ const OB_STEPS_ALL = [
   },
 ];
 
-// Filter out steps targeting hidden elements (e.g. in wide mode)
+// Filter out steps whose target doesn't exist or isn't relevant to current mode
 function getObSteps() {
   return OB_STEPS_ALL.filter(s => {
     if (s.narrowOnly && isWideMode()) return false;
-    const el = document.querySelector(s.target);
-    return el && el.offsetParent !== null; // visible in DOM
+    return !!document.querySelector(s.target);
   });
 }
 let OB_STEPS = getObSteps();
@@ -2105,7 +2415,14 @@ chrome.storage.local.get([OB_KEY], (r) => {
 
 // Replay walkthrough from About screen
 $("replay-walkthrough").addEventListener("click", () => {
+  // Close the support screen
   $("support-screen").classList.remove("open");
+  // Make sure dashboard tab is on the main "score" view
+  switchDashTab("score");
+  // Scroll main container to top so dashboard elements are in DOM
+  const main = document.querySelector(".container") || document.documentElement;
+  main.scrollTop = 0;
   chrome.storage.local.remove(OB_KEY);
-  setTimeout(startOnboarding, 400);
+  // Longer delay to let DOM settle after closing support screen
+  setTimeout(startOnboarding, 600);
 });
