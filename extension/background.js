@@ -1165,23 +1165,66 @@ async function replayProfileTips() {
 
           if (key === 'skills' && sec) {
             let count = countListItems(sec);
-            // Fallback: parse count from heading like "Skills (66)"
+
+            // LinkedIn uses div-based skill chips, not always <li>
             if (count === 0) {
-              const heading = sec.querySelector('h2, h3, [class*="header"] span');
+              const skillSelectors = [
+                '[class*="artdeco-list__item"]',
+                '[class*="pvs-list__item"]',
+                '[class*="skill"]',
+                '[data-view-name="profile-component-entity"]',
+              ];
+              for (const sel of skillSelectors) {
+                const n = sec.querySelectorAll(sel).length;
+                if (n > 0) { count = n; break; }
+              }
+            }
+
+            // Fallback: parse "(n)" from heading like "Skills (66)"
+            if (count === 0) {
+              const heading = sec.querySelector('h2, h3, [class*="header"] span, [class*="pvs-header"] span');
               const hText = heading ? heading.textContent : sec.textContent.substring(0, 100);
               const numMatch = hText.match(/\((\d+)\)/);
               if (numMatch) count = parseInt(numMatch[1], 10);
             }
+
             debug.skillCount = count;
             result[key] = { status: count === 0 ? 'missing' : count < 5 ? 'weak' : 'complete', count };
           } else if (key === 'recommendations' && sec) {
-            let count = countListItems(sec);
+            let count = countListItems(sec); // li elements
+
+            // LinkedIn uses div-based cards, not <li> — try multiple selectors
             if (count === 0) {
-              const heading = sec.querySelector('h2, h3, [class*="header"] span');
+              const cardSelectors = [
+                '[class*="artdeco-list__item"]',
+                '[class*="recommendation"]',
+                '[class*="pvs-list__item"]',
+                '[class*="profile-component-entity"]',
+                '[data-view-name="profile-component-entity"]',
+                'article',
+              ];
+              for (const sel of cardSelectors) {
+                const n = sec.querySelectorAll(sel).length;
+                if (n > 0) { count = n; break; }
+              }
+            }
+
+            // Fallback: parse "(n)" from heading
+            if (count === 0) {
+              const heading = sec.querySelector('h2, h3, [class*="header"] span, [class*="pvs-header"] span');
               const hText = heading ? heading.textContent : sec.textContent.substring(0, 100);
               const numMatch = hText.match(/\((\d+)\)/);
               if (numMatch) count = parseInt(numMatch[1], 10);
             }
+
+            // Last resort: section exists and has substantial text → at least 1 recommendation
+            if (count === 0) {
+              const secText = sec.textContent.trim();
+              // More than 300 chars beyond just the heading = actual recommendation content
+              const headingLen = sec.querySelector('h2, h3')?.textContent.length || 0;
+              if (secText.length - headingLen > 300) count = 1;
+            }
+
             debug.recCount = count;
             result[key] = { status: count === 0 ? 'missing' : count < 3 ? 'weak' : 'complete', count };
           } else {
