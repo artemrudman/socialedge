@@ -2455,6 +2455,7 @@ span.t-down { color: var(--red);   font-weight: 600; }
 }
 .jobs-empty svg { margin-bottom: 12px; }
 .jobs-empty strong { color: var(--text-2); }
+.jobs-empty.hidden { display: none; }
 
 /* ── Job cards ── */
 .jobs-list {
@@ -2462,6 +2463,7 @@ span.t-down { color: var(--red);   font-weight: 600; }
   flex-direction: column;
   gap: 6px;
 }
+.jobs-list.hidden { display: none; }
 
 .job-card {
   display: flex;
@@ -2561,6 +2563,7 @@ span.t-down { color: var(--red);   font-weight: 600; }
   padding: 8px 16px 12px;
   text-align: center;
 }
+.jobs-footer.hidden { display: none; }
 
 .jobs-see-all {
   display: inline-flex;

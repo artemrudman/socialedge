@@ -2243,7 +2243,7 @@ const OB_STEPS_ALL = [
   {
     target: "#btn-refresh",
     title: "Getting Started",
-    desc: "First, open linkedin.com in any tab and sign in. Then click Refresh Score \u2014 SocialEdge will fetch your SSI automatically. After this one-time setup, your score updates every day behind the scenes.",
+    desc: 'First, open <a href="https://www.linkedin.com" target="_blank" style="color:var(--green)">linkedin.com</a> in any tab and sign in. Then click Refresh Score \u2014 SocialEdge will fetch your SSI automatically. After this one-time setup, your score updates every day behind the scenes.',
     pos: "above",
   },
   {
@@ -2369,7 +2369,7 @@ function renderObTooltip(step) {
 
   // Title & desc
   $("ob-title").textContent = step.title;
-  $("ob-desc").textContent = step.desc;
+  $("ob-desc").innerHTML = step.desc;
 
   // Step dots
   const dotsHTML = OB_STEPS.map((_, i) => {
