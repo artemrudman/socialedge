@@ -18,16 +18,16 @@ const ACTIVITIES = {
   find_right_people: {
     name: "Find Right People",
     items: [
-      { label: "Used advanced search filters to find prospects", difficulty: 1 },
-      { label: "Saved 5+ new leads", difficulty: 1 },
-      { label: "Saved a new account", difficulty: 1 },
-      { label: 'Reviewed "People Also Viewed" suggestions', difficulty: 1 },
-      { label: "Used TeamLink to find a warm introduction", difficulty: 2 },
-      { label: "Browsed recommended accounts", difficulty: 1 },
-      { label: "Ran a boolean search query", difficulty: 2 },
-      { label: "Filtered by job change in the past 90 days", difficulty: 1 },
-      { label: "Searched within a specific account", difficulty: 1 },
-      { label: "Reviewed lead recommendations from Sales Navigator", difficulty: 1 },
+      { label: "Used search filters (title, company, location) to find prospects", difficulty: 1 },
+      { label: "Sent 3+ targeted connection requests to people in your industry", difficulty: 1 },
+      { label: "Followed a target company's LinkedIn page", difficulty: 1 },
+      { label: 'Reviewed "People Also Viewed" suggestions on a relevant profile', difficulty: 1 },
+      { label: "Asked a mutual connection to introduce you to a prospect", difficulty: 2 },
+      { label: 'Used "People You May Know" to find relevant connections', difficulty: 1 },
+      { label: "Ran a boolean search query (AND, OR, NOT keywords)", difficulty: 2 },
+      { label: "Found prospects via a target company's People tab", difficulty: 1 },
+      { label: "Searched alumni from a specific school or company", difficulty: 1 },
+      { label: "Reviewed LinkedIn's suggested connections for relevant prospects", difficulty: 1 },
     ],
   },
   insight_engagement: {
@@ -1962,54 +1962,67 @@ function updateAuthUI() {
   if (userBtn) userBtn.classList.toggle("logged-in", loggedIn);
   if (userBtn) userBtn.classList.toggle("is-pro", pro);
   const initialsEl = $("user-btn-initials");
-  if (loggedIn && user) {
-    initialsEl.textContent = getInitials(user.name);
-    initialsEl.classList.remove("hidden");
-  } else {
-    initialsEl.classList.add("hidden");
+  if (initialsEl) {
+    if (loggedIn && user) {
+      initialsEl.textContent = getInitials(user.name);
+      initialsEl.classList.remove("hidden");
+    } else {
+      initialsEl.classList.add("hidden");
+    }
   }
 
-  // Toggle forms vs account view
+  // Toggle forms vs account view (auth screen may be commented out in HTML)
+  if (!authForms || !authAccount) return;
+
   if (loggedIn && user) {
     authForms.classList.add("hidden");
     authAccount.classList.remove("hidden");
-    $("auth-screen-title").textContent = "Account";
+    const screenTitle = $("auth-screen-title");
+    if (screenTitle) screenTitle.textContent = "Account";
 
     // Populate account info
-    $("auth-avatar").textContent = getInitials(user.name);
-    $("auth-avatar").classList.toggle("pro", pro);
-    $("auth-user-name").textContent = user.name;
-    $("auth-user-email").textContent = user.email;
+    const avatar = $("auth-avatar");
+    if (avatar) {
+      avatar.textContent = getInitials(user.name);
+      avatar.classList.toggle("pro", pro);
+    }
+    const authUserName = $("auth-user-name");
+    if (authUserName) authUserName.textContent = user.name;
+    const authUserEmail = $("auth-user-email");
+    if (authUserEmail) authUserEmail.textContent = user.email;
 
     // Avatar image (from Google)
     const avatarImg = $("auth-avatar-img");
-    if (user.avatarUrl) {
-      avatarImg.src = user.avatarUrl;
-      avatarImg.classList.remove("hidden");
-      avatarImg.classList.toggle("pro", pro);
-    } else {
-      avatarImg.classList.add("hidden");
+    if (avatarImg) {
+      if (user.avatarUrl) {
+        avatarImg.src = user.avatarUrl;
+        avatarImg.classList.remove("hidden");
+        avatarImg.classList.toggle("pro", pro);
+      } else {
+        avatarImg.classList.add("hidden");
+      }
     }
 
     // Google connected badge
     const googleBadge = $("auth-google-linked");
-    if (user.googleLinked) {
-      googleBadge.classList.remove("hidden");
-    } else {
-      googleBadge.classList.add("hidden");
+    if (googleBadge) {
+      googleBadge.classList.toggle("hidden", !user.googleLinked);
     }
 
     const badge = $("auth-plan-badge");
-    badge.textContent = pro ? "Pro" : "Free";
-    badge.className = `auth-plan-badge ${pro ? "pro" : "free"}`;
+    if (badge) {
+      badge.textContent = pro ? "Pro" : "Free";
+      badge.className = `auth-plan-badge ${pro ? "pro" : "free"}`;
+    }
   } else {
     authForms.classList.remove("hidden");
     authAccount.classList.add("hidden");
-    $("auth-screen-title").textContent = "Account";
+    const screenTitle = $("auth-screen-title");
+    if (screenTitle) screenTitle.textContent = "Account";
     // Reset error states
-    $("login-error").classList.add("hidden");
-    $("register-error").classList.add("hidden");
-    $("auth-google-error").classList.add("hidden");
+    $("login-error")?.classList.add("hidden");
+    $("register-error")?.classList.add("hidden");
+    $("auth-google-error")?.classList.add("hidden");
   }
 }
 

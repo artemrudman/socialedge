@@ -67,10 +67,20 @@ async function replaySSI(tabId, capturedHeaders) {
     if (result?.data) {
       await storeSSI(result.data);
     } else {
-      console.error('[SocialEdge] Replay failed:', result?.error, result?.detail || '');
+      const errMsg = result?.error || 'fetch_failed';
+      const detail = result?.detail || '';
+      console.error('[SocialEdge] Replay failed:', errMsg, detail);
+      for (const resolve of pendingSSIResolvers) {
+        resolve({ error: errMsg, message: detail || 'SSI fetch failed. Try refreshing your LinkedIn page.' });
+      }
+      pendingSSIResolvers.clear();
     }
   } catch (e) {
     console.error('[SocialEdge] executeScript error:', e.message);
+    for (const resolve of pendingSSIResolvers) {
+      resolve({ error: 'script_error', message: e.message });
+    }
+    pendingSSIResolvers.clear();
   }
 }
 
@@ -244,16 +254,16 @@ const ALL_ACTIVITIES = {
     { label: "Completed a LinkedIn learning course", difficulty: 3 },
   ],
   find_right_people: [
-    { label: "Used advanced search filters to find prospects", difficulty: 1 },
-    { label: "Saved 5+ new leads", difficulty: 1 },
-    { label: "Saved a new account", difficulty: 1 },
-    { label: 'Reviewed "People Also Viewed" suggestions', difficulty: 1 },
-    { label: "Used TeamLink to find a warm introduction", difficulty: 2 },
-    { label: "Browsed recommended accounts", difficulty: 1 },
-    { label: "Ran a boolean search query", difficulty: 2 },
-    { label: "Filtered by job change in the past 90 days", difficulty: 1 },
-    { label: "Searched within a specific account", difficulty: 1 },
-    { label: "Reviewed lead recommendations from Sales Navigator", difficulty: 1 },
+    { label: "Used search filters (title, company, location) to find prospects", difficulty: 1 },
+    { label: "Sent 3+ targeted connection requests to people in your industry", difficulty: 1 },
+    { label: "Followed a target company's LinkedIn page", difficulty: 1 },
+    { label: 'Reviewed "People Also Viewed" suggestions on a relevant profile', difficulty: 1 },
+    { label: "Asked a mutual connection to introduce you to a prospect", difficulty: 2 },
+    { label: 'Used "People You May Know" to find relevant connections', difficulty: 1 },
+    { label: "Ran a boolean search query (AND, OR, NOT keywords)", difficulty: 2 },
+    { label: "Found prospects via a target company's People tab", difficulty: 1 },
+    { label: "Searched alumni from a specific school or company", difficulty: 1 },
+    { label: "Reviewed LinkedIn's suggested connections for relevant prospects", difficulty: 1 },
   ],
   insight_engagement: [
     { label: "Left a thoughtful comment on a lead's post", difficulty: 1 },
