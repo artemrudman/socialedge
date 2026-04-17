@@ -608,7 +608,6 @@ const DASH_TAB_MAP = {
   quest: "quest-screen",
   history: "history-screen",
   analytics: "analytics-screen",
-  tips: "tips-screen",
   jobs: "jobs-screen",
 };
 let _wideInited = false;
@@ -1724,9 +1723,23 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // ── Profile Tips screen ──────────────────────────────────────────────────────
 const tipsScreen = $("tips-screen");
 
-$("btn-tips").addEventListener("click", () => {
+// Header Profile Tips button (narrow mode) — opens tips panel
+const headerTipsBtn = $("header-tips-btn");
+if (headerTipsBtn) headerTipsBtn.addEventListener("click", () => {
   tipsScreen.classList.add("open");
   loadProfileTips();
+});
+
+// Jobs button in actions bar — opens jobs panel (narrow) or switches tab (wide)
+const btnJobs = $("btn-jobs");
+if (btnJobs) btnJobs.addEventListener("click", () => {
+  if (isWideMode()) {
+    switchDashTab("jobs");
+  } else {
+    const jobsScreen = $("jobs-screen");
+    if (jobsScreen) jobsScreen.classList.add("open");
+    loadJobs();
+  }
 });
 $("tips-back-btn").addEventListener("click", () =>
   tipsScreen.classList.remove("open"),
@@ -2272,9 +2285,15 @@ const OB_STEPS_ALL = [
     narrowOnly: true,
   },
   {
-    target: ".boost-link",
-    title: "Free Boost Strategy",
-    desc: "Download our free PDF guide with proven strategies and daily routines to grow your Social Selling Score faster. One click and it's yours!",
+    target: "#btn-jobs",
+    title: "Job Recommendations",
+    desc: "See your top job recommendations from LinkedIn, personalized to your profile. One click takes you straight to the listing.",
+    pos: "above",
+  },
+  {
+    target: "#header-tips-btn",
+    title: "Profile Tips",
+    desc: "Get a personalized audit of your LinkedIn profile — see exactly what's missing or weak, and get actionable tips to boost your Professional Brand score.",
     pos: "below",
   },
 ];

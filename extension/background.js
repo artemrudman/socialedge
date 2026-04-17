@@ -1333,35 +1333,63 @@ async function replayProfileTips() {
           }
         }
 
-        // Strategy 2: Find profile name element, take next sibling text
+        // Strategy 2: Walk UP from name element, check siblings at every level
+        // LinkedIn uses CSS modules — no class names we can predict. Position is the only signal.
         if (!domHeadline) {
-          const nameEl = [...document.querySelectorAll('h1, h2, [class*="name"]')]
-            .find(el => el.textContent.trim().toLowerCase().includes(nameLower) && el.textContent.trim().length < 80);
+          const nameEl = [...document.querySelectorAll('h1, h2, h3, div, span')]
+            .find(el => {
+              const t = el.textContent.trim();
+              return t.toLowerCase() === nameLower && t.length < 80 && el.children.length <= 2;
+            });
+          debug.nameElTag = nameEl ? (nameEl.tagName + ' ' + nameEl.className.substring(0, 60)) : 'not found';
           if (nameEl) {
-            debug.nameElTag = nameEl.tagName + '.' + nameEl.className.substring(0, 40);
-            // Check next siblings in parent
-            let sibling = nameEl.nextElementSibling;
-            for (let i = 0; i < 5 && sibling; i++) {
-              const t = sibling.textContent.trim().replace(/\s+/g, ' ');
-              if (isHeadlineCandidate(t)) {
-                domHeadline = t;
-                debug.headlineStrategy = '2-name-sibling';
-                break;
-              }
-              sibling = sibling.nextElementSibling;
-            }
-            // Also check parent's next sibling
-            if (!domHeadline && nameEl.parentElement) {
-              let pSibling = nameEl.parentElement.nextElementSibling;
-              for (let i = 0; i < 3 && pSibling; i++) {
-                const t = pSibling.textContent.trim().replace(/\s+/g, ' ');
-                if (isHeadlineCandidate(t) && t.length < 300) {
+            const siblingTexts = [];
+            let cur = nameEl;
+            for (let level = 0; level < 10 && !domHeadline; level++) {
+              const parent = cur.parentElement;
+              if (!parent || parent === document.body) break;
+              for (const child of parent.children) {
+                if (child === cur || child.contains(nameEl)) continue;
+                const t = child.textContent.trim().replace(/\s+/g, ' ');
+                siblingTexts.push(`L${level}:"${t.substring(0, 100)}"`);
+                if (t.length >= 10 && t.length <= 400 && isHeadlineCandidate(t)) {
                   domHeadline = t;
-                  debug.headlineStrategy = '2-parent-sibling';
+                  debug.headlineStrategy = `2-walkup-L${level}`;
                   break;
                 }
-                pSibling = pSibling.nextElementSibling;
+                // Also check direct children of this sibling
+                for (const grandchild of child.children) {
+                  const gt = grandchild.textContent.trim().replace(/\s+/g, ' ');
+                  siblingTexts.push(`L${level}c:"${gt.substring(0, 100)}"`);
+                  if (gt.length >= 10 && gt.length <= 400 && isHeadlineCandidate(gt)) {
+                    domHeadline = gt;
+                    debug.headlineStrategy = `2-walkup-L${level}-child`;
+                    break;
+                  }
+                }
+                if (domHeadline) break;
               }
+              cur = parent;
+            }
+            debug.siblingTexts = siblingTexts.slice(0, 15);
+          }
+        }
+
+        // Strategy 3b: Full page leaf-text scan — nuclear option
+        // Scans ALL leaf text nodes for professional headline patterns
+        if (!domHeadline) {
+          const leafEls = [...document.querySelectorAll('span, div, p, h1, h2, h3')];
+          for (const el of leafEls) {
+            if (el.children.length > 0) continue; // leaf nodes only
+            const t = el.textContent.trim().replace(/\s+/g, ' ');
+            if (t.length < 20 || t.length > 350) continue;
+            if (!isHeadlineCandidate(t)) continue;
+            // Must contain a professional keyword or pipe separator
+            if (t.includes(' | ') || t.includes(' / ') ||
+                /\b(analyst|engineer|manager|developer|director|founder|consultant|specialist|executive|architect|scientist|designer|researcher|strategist|advisor|associate|officer)\b/i.test(t)) {
+              domHeadline = t;
+              debug.headlineStrategy = '3b-leafscan';
+              break;
             }
           }
         }
