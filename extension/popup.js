@@ -139,8 +139,16 @@ function applyTrend(el, t, cls = "pillar-trend") {
 
 const ACT_KEY = "dailyActivities";
 
+function localDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function today() {
-  return new Date().toISOString().split("T")[0];
+  return localDateKey();
 }
 
 async function loadActivities() {
@@ -271,12 +279,8 @@ function render(current, previous) {
 function renderHistory(history) {
   initChart(history);
   const tbody = $("history-body");
-  $("history-count").textContent = `${Math.min(history.length, 30)} days`;
-  // $('history-count').textContent = `open`;
-  if (history.length === 1) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">1 day</td></tr>';
-    return;
-  }
+  const visibleCount = Math.min(history.length, 30);
+  $("history-count").textContent = `${visibleCount} ${visibleCount === 1 ? "day" : "days"}`;
 
   if (!history.length) {
     tbody.innerHTML =
@@ -536,8 +540,6 @@ $("act-detail-back").addEventListener("click", () => {
 });
 
 // ── Initial load ─────────────────────────────────────────────────────────────────
-const AUTO_REFRESH_KEY = "_se_lastAutoRefresh";
-
 async function loadAndRender() {
   allActivities = await loadActivities();
   chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
@@ -550,14 +552,6 @@ async function loadAndRender() {
     }
   });
 
-  // Auto-refresh stats once per day on open
-  const todayStr = today();
-  const stored = await new Promise(r => chrome.storage.local.get([AUTO_REFRESH_KEY], r));
-  if (stored[AUTO_REFRESH_KEY] !== todayStr) {
-    chrome.storage.local.set({ [AUTO_REFRESH_KEY]: todayStr });
-    chrome.runtime.sendMessage({ action: "fetchNow" });
-    chrome.runtime.sendMessage({ action: "fetchAnalytics" });
-  }
 }
 
 // ── Setup card — shown on first run when no SSI data exists ──────────────────
@@ -623,6 +617,11 @@ function switchDashTab(tab) {
   for (const [key, id] of Object.entries(DASH_TAB_MAP)) {
     const el = $(id);
     if (el) el.classList.toggle("dash-active", key === tab);
+  }
+  // The history canvas has no layout size while its wide-mode panel is hidden.
+  // Draw only after the selected panel has been painted.
+  if (tab === "history") {
+    requestAnimationFrame(() => requestAnimationFrame(drawChart));
   }
   // Lazy-load analytics on first view
   if (tab === "analytics" && !_wideInited) {
@@ -905,29 +904,43 @@ $("btn-refresh").addEventListener("click", () => {
 // ── Score Chart ───────────────────────────────────────────────────────────────
 const OVERALL_COLOR = "#E8E8F0";
 let chartData = []; // oldest → newest
-let forecastPtsPro = []; // [{ dayOffset, value, label }]
-// hoverIdx: 0..n-1 = real; n..n+2 = pro forecast
+let trendProjectionPoints = []; // [{ dayOffset, value, label }]
+// hoverIdx: 0..n-1 = real; n..n+2 = trend projection
 let hoverIdx = -1;
 
-// ── Forecast computation ──────────────────────────────────────────────────────
-function computeForecast(data) {
-  if (!data.length) return [];
+// ── Transparent linear trend projection ───────────────────────────────────────
+function computeTrendProjection(data) {
+  const observations = data
+    .map((entry) => ({
+      date: entry.date,
+      value: entry.parsed?.overall,
+    }))
+    .filter((entry) => Number.isFinite(entry.value));
+  if (observations.length < 7) return [];
+
   const base = new Date(data[0].date);
   const toDay = (d) => Math.round((new Date(d) - base) / 86400000);
-  const lastDay = toDay(data[data.length - 1].date);
-  const lastVal = data[data.length - 1].parsed?.overall ?? 0;
+  const points = observations.map((entry) => ({
+    x: toDay(entry.date),
+    y: Number(entry.value),
+  }));
+  const xMean = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+  const yMean = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  const denominator = points.reduce(
+    (sum, point) => sum + Math.pow(point.x - xMean, 2),
+    0,
+  );
+  if (!denominator) return [];
+  const slope = points.reduce(
+    (sum, point) => sum + (point.x - xMean) * (point.y - yMean),
+    0,
+  ) / denominator;
+  const intercept = yMean - slope * xMean;
+  const lastDay = points[points.length - 1].x;
 
-  // Pro: personal target 60–65 (deterministic per user)
-  const seed = data.reduce((a, e) => a + (e.parsed?.overall ?? 0), 0);
-  const pseudo = ((seed * 9301 + 49297) % 233280) / 233280;
-  const personalTarget = 60 + pseudo * 5;
-  const proTarget =
-    lastVal < personalTarget
-      ? personalTarget
-      : Math.min(100, lastVal + (100 - lastVal) * 0.18);
   return [30, 60, 90].map((d) => ({
     dayOffset: lastDay + d,
-    value: lastVal + (proTarget - lastVal) * (d / 90),
+    value: Math.max(0, Math.min(100, intercept + slope * (lastDay + d))),
     label: `+${d}d`,
   }));
 }
@@ -938,9 +951,8 @@ function computeForecast(data) {
     <span class="legend-item">
       <span class="legend-line-solid"></span>Overall Score
     </span>
-    <span class="legend-item">
-      <span class="legend-line-dashed"></span>3-Month Forecast
-      <span class="legend-pro-badge">🔒Pro</span>
+    <span class="legend-item" id="projection-legend">
+      <span class="legend-line-dashed"></span>Linear trend projection
     </span>`;
 })();
 
@@ -954,20 +966,25 @@ function drawChart() {
   const H = canvas.offsetHeight;
   if (!W || !H) return;
 
-  canvas.width = W * dpr;
-  canvas.height = H * dpr;
+  const pixelWidth = Math.round(W * dpr);
+  const pixelHeight = Math.round(H * dpr);
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
   const ctx = canvas.getContext("2d");
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
 
   const pad = { top: 14, right: 14, bottom: 8, left: 32 };
   const cw = W - pad.left - pad.right;
   const ch = H - pad.top - pad.bottom;
 
-  // Date → pixel x (using real calendar days so forecast spacing is proportional)
+  // Date → pixel x (using real calendar days so projection spacing is proportional)
   const base = new Date(chartData[0].date);
   const toDay = (d) => Math.round((new Date(d) - base) / 86400000);
   const realDays = chartData.map((e) => toDay(e.date));
-  const allFcPts = [...forecastPtsPro];
+  const allFcPts = [...trendProjectionPoints];
   const maxDay = allFcPts.length
     ? allFcPts[allFcPts.length - 1].dayOffset
     : realDays[realDays.length - 1];
@@ -989,8 +1006,8 @@ function drawChart() {
     ctx.fillText(v, pad.left - 5, y + 3.5);
   });
 
-  // ── Forecast region tint ─────────────────────────────────────────────────
-  if (forecastPtsPro.length) {
+  // ── Projection region tint ───────────────────────────────────────────────
+  if (trendProjectionPoints.length) {
     const fx = xOf(realDays[realDays.length - 1]);
     const fGrad = ctx.createLinearGradient(fx, 0, W - pad.right, 0);
     fGrad.addColorStop(0, "rgba(96,165,250,.05)");
@@ -1088,8 +1105,8 @@ function drawChart() {
     });
   }
 
-  // ── Helper: draw one dashed forecast line + hollow dots ─────────────────
-  function drawForecastLine(pts, color, dashPat, idxOffset) {
+  // ── Helper: draw one dashed projection line + hollow dots ────────────────
+  function drawProjectionLine(pts, color, dashPat, idxOffset) {
     const lastReal = chartData[chartData.length - 1].parsed?.overall;
     if (!pts.length || lastReal == null) return;
     const x0 = xOf(realDays[realDays.length - 1]);
@@ -1123,16 +1140,15 @@ function drawChart() {
   }
 
   const n = chartData.length;
-  // Pro forecast: green dashes
-  drawForecastLine(forecastPtsPro, "#34D399", [7, 4], n);
+  drawProjectionLine(trendProjectionPoints, "#34D399", [7, 4], n);
 
   // ── Crosshair + tooltip ───────────────────────────────────────────────────
   const allPts = [
-    ...realDays.map((day, i) => ({ i, x: xOf(day), isPro: false })),
-    ...forecastPtsPro.map((fp, fi) => ({
+    ...realDays.map((day, i) => ({ i, x: xOf(day), isProjection: false })),
+    ...trendProjectionPoints.map((fp, fi) => ({
       i: n + fi,
       x: xOf(fp.dayOffset),
-      isPro: true,
+      isProjection: true,
       fp,
     })),
   ];
@@ -1150,41 +1166,15 @@ function drawChart() {
 
     const tooltip = $("chart-tooltip");
 
-    function topEstRows(fp, exponent) {
-      const lastEntry = chartData[chartData.length - 1];
-      const lastScore = lastEntry.parsed?.overall ?? 0;
-      const lastIndTop = lastEntry.parsed?.industry?.top;
-      const lastNetTop = lastEntry.parsed?.network?.top;
-      const ratio = lastScore > 0 ? lastScore / fp.value : 1;
-      const eInd =
-        lastIndTop != null
-          ? Math.max(1, Math.round(lastIndTop * Math.pow(ratio, exponent)))
-          : null;
-      const eNet =
-        lastNetTop != null
-          ? Math.max(1, Math.round(lastNetTop * Math.pow(ratio, exponent)))
-          : null;
-      return [
-        eInd != null
-          ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Industry</span><span class="ct-val">~Top ${eInd}%</span></div>`
-          : "",
-        eNet != null
-          ? `<div class="ct-row"><span class="ct-label" style="color:var(--text-3)">Top Network</span><span class="ct-val">~Top ${eNet}%</span></div>`
-          : "",
-      ].join("");
-    }
-
-    if (hov.isPro) {
-      const rows = topEstRows(hov.fp, 3.2);
+    if (hov.isProjection) {
       tooltip.innerHTML = `
-        <div class="ct-date">Pro Forecast ${hov.fp.label}</div>
+        <div class="ct-date">Linear trend ${hov.fp.label}</div>
         <div class="ct-row">
           <span class="ct-dot" style="background:#34D399"></span>
-          <span class="ct-label">Projected SSI</span>
+          <span class="ct-label">Trend value</span>
           <span class="ct-val">~${hov.fp.value.toFixed(1)}<span style="color:var(--text-3);font-weight:400">/100</span></span>
         </div>
-        ${rows ? `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">${rows}</div>` : ""}
-        <div class="ct-note">With consistent daily activity<br>from the Advanced Plan</div>`;
+        <div class="ct-note">Straight-line extrapolation of recent scores.<br>Not a prediction or guarantee.</div>`;
     } else {
       const e = chartData[hov.i];
       const indTop = e.parsed?.industry?.top;
@@ -1217,21 +1207,31 @@ function drawChart() {
 
 function initChart(history) {
   chartData = history.slice(0, 30).slice().reverse();
-  forecastPtsPro = computeForecast(chartData);
+  trendProjectionPoints = computeTrendProjection(chartData);
+  $("projection-legend").classList.toggle("hidden", !trendProjectionPoints.length);
   drawChart();
 }
 
 // Mouse interaction
 (function bindChartEvents() {
   const canvas = $("score-chart");
+  let chartFrame = null;
+
+  function scheduleChartDraw() {
+    if (chartFrame != null) return;
+    chartFrame = requestAnimationFrame(() => {
+      chartFrame = null;
+      drawChart();
+    });
+  }
 
   function nearestIdx(mouseX) {
     if (!chartData.length) return -1;
     const base = new Date(chartData[0].date);
     const toDay = (d) => Math.round((new Date(d) - base) / 86400000);
     const realDays = chartData.map((e) => toDay(e.date));
-    const maxDay = forecastPtsPro.length
-      ? forecastPtsPro[forecastPtsPro.length - 1].dayOffset
+    const maxDay = trendProjectionPoints.length
+      ? trendProjectionPoints[trendProjectionPoints.length - 1].dayOffset
       : realDays[realDays.length - 1];
     const padL = 32;
     const padR = 14;
@@ -1241,7 +1241,7 @@ function initChart(history) {
 
     const all = [
       ...realDays.map((day, i) => ({ i, x: xOf(day) })),
-      ...forecastPtsPro.map((fp, fi) => ({ i: n + fi, x: xOf(fp.dayOffset) })),
+      ...trendProjectionPoints.map((fp, fi) => ({ i: n + fi, x: xOf(fp.dayOffset) })),
     ];
     let best = -1;
     let bestD = Infinity;
@@ -1257,12 +1257,15 @@ function initChart(history) {
 
   canvas.addEventListener("mousemove", (e) => {
     const rect = canvas.getBoundingClientRect();
-    hoverIdx = nearestIdx(e.clientX - rect.left);
-    drawChart();
+    const nextHoverIdx = nearestIdx(e.clientX - rect.left);
+    if (nextHoverIdx === hoverIdx) return;
+    hoverIdx = nextHoverIdx;
+    scheduleChartDraw();
   });
   canvas.addEventListener("mouseleave", () => {
+    if (hoverIdx === -1) return;
     hoverIdx = -1;
-    drawChart();
+    scheduleChartDraw();
   });
 })();
 
@@ -1279,18 +1282,32 @@ $("history-back-btn").addEventListener("click", () =>
 );
 
 // ── Export buttons ────────────────────────────────────────────────────────────────
-function doExport() {
-  chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
-    const json = JSON.stringify(history, null, 2);
-    const dataUrl =
-      "data:application/json;charset=utf-8," + encodeURIComponent(json);
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `socialedge_${today()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  });
+async function doExport() {
+  const history = await new Promise((resolve) =>
+    chrome.runtime.sendMessage({ action: "getHistory" }, resolve),
+  );
+  const activities = await loadActivities();
+  const payload = {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    ssi_history: history || [],
+    daily_activities: activities,
+    activity_catalog: Object.fromEntries(
+      Object.entries(ACTIVITIES).map(([pillar, definition]) => [
+        pillar,
+        definition.items,
+      ]),
+    ),
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const dataUrl =
+    "data:application/json;charset=utf-8," + encodeURIComponent(json);
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = `socialedge_${today()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 $("btn-export-history").addEventListener("click", doExport);
@@ -1489,7 +1506,7 @@ function drawAnalyticsChart(history) {
   for (const snap of history) {
     const v = snap[metric.key];
     if (v == null) continue;
-    const day = snap.date || new Date(snap.ts).toISOString().split('T')[0];
+    const day = snap.date || localDateKey(snap.ts);
     if (!byDay[day] || v > byDay[day].value) {
       byDay[day] = { ts: snap.ts, value: v, date: day };
     }
@@ -1503,10 +1520,15 @@ function drawAnalyticsChart(history) {
   const H = canvas.offsetHeight;
   if (!W || !H) return;
 
-  canvas.width = W * dpr;
-  canvas.height = H * dpr;
+  const pixelWidth = Math.round(W * dpr);
+  const pixelHeight = Math.round(H * dpr);
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
 
   const pad = { top: 16, right: 14, bottom: 22, left: 40 };
   const cw = W - pad.left - pad.right;
@@ -1640,6 +1662,15 @@ function drawAnalyticsChart(history) {
 (function bindAnalyticsChartEvents() {
   const canvas = $('analytics-chart');
   let currentHistory = [];
+  let analyticsFrame = null;
+
+  function scheduleAnalyticsDraw() {
+    if (analyticsFrame != null) return;
+    analyticsFrame = requestAnimationFrame(() => {
+      analyticsFrame = null;
+      drawAnalyticsChart(currentHistory);
+    });
+  }
 
   function nearestIdx(mouseX) {
     if (!currentHistory.length) return -1;
@@ -1650,7 +1681,7 @@ function drawAnalyticsChart(history) {
     for (const snap of currentHistory) {
       const v = snap[metric.key];
       if (v == null) continue;
-      const day = snap.date || new Date(snap.ts).toISOString().split('T')[0];
+      const day = snap.date || localDateKey(snap.ts);
       if (!byDay[day] || v > byDay[day].value) {
         byDay[day] = { ts: snap.ts, value: v, date: day };
       }
@@ -1677,13 +1708,13 @@ function drawAnalyticsChart(history) {
     const idx = nearestIdx(e.clientX - rect.left);
     if (idx !== analyticsHoverIdx) {
       analyticsHoverIdx = idx;
-      drawAnalyticsChart(currentHistory);
+      scheduleAnalyticsDraw();
     }
   });
   canvas.addEventListener('mouseleave', () => {
     if (analyticsHoverIdx !== -1) {
       analyticsHoverIdx = -1;
-      drawAnalyticsChart(currentHistory);
+      scheduleAnalyticsDraw();
     }
   });
 
@@ -2286,7 +2317,7 @@ const OB_STEPS_ALL = [
   {
     target: "#btn-history",
     title: "Score History",
-    desc: "View your full score history with trends, a visual chart, and 30/60/90-day forecasts. Every data point is saved automatically.",
+    desc: "View your full score history with trends, a visual chart, and clearly labeled linear trend projections. Every data point is saved automatically.",
     pos: "above",
     narrowOnly: true,
   },

@@ -5,6 +5,14 @@ const SALES_URL        = 'https://www.linkedin.com/sales/ssi';
 
 const pendingSSIResolvers = new Set();
 
+function localDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // ── Open side panel on action click ──────────────────────────────────────────
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ windowId: tab.windowId });
@@ -16,9 +24,16 @@ chrome.action.onClicked.addListener((tab) => {
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   async (details) => {
+    const allowedHeaders = new Set([
+      'accept',
+      'csrf-token',
+      'x-li-lang',
+      'x-restli-protocol-version',
+    ]);
     const headers = {};
     for (const h of details.requestHeaders || []) {
-      headers[h.name.toLowerCase()] = h.value;
+      const name = h.name.toLowerCase();
+      if (allowedHeaders.has(name) && h.value != null) headers[name] = h.value;
     }
     await chrome.storage.local.set({ [SSI_HEADERS_KEY]: { headers, ts: Date.now() } });
     console.log('[SocialEdge] Captured salesApiSsi headers');
@@ -112,7 +127,7 @@ function parseSSI(data) {
 }
 
 async function storeSSI(rawData) {
-  const date   = new Date().toISOString().split('T')[0];
+  const date   = localDateKey();
   const parsed = parseSSI(rawData);
   const entry  = { date, parsed, raw: rawData };
 
@@ -134,14 +149,17 @@ async function storeSSI(rawData) {
 // ── Main fetch orchestrator ───────────────────────────────────────────────────
 // Never creates new tabs. Uses an existing LinkedIn tab silently.
 
-async function runFetch() {
+async function runFetch(allowNavigation = true) {
   if (pendingSSIResolvers.size > 0) return { error: 'Fetch already in progress.' };
 
   const stored = await chrome.storage.local.get([SSI_HEADERS_KEY]);
   let cached = stored[SSI_HEADERS_KEY];
 
-  // ── Auto-bootstrap: if no headers cached, try to open SSI page silently ───
+  // Only an explicit refresh may navigate a tab to bootstrap header capture.
   if (!cached?.headers) {
+    if (!allowNavigation) {
+      return { error: 'awaiting_headers' };
+    }
     const tabs = await chrome.tabs.query({ url: '*://*.linkedin.com/*' });
     if (!tabs.length) {
       return {
@@ -211,10 +229,10 @@ async function runFetch() {
 chrome.runtime.onStartup.addListener(async () => {
   const stored  = await chrome.storage.local.get([SSI_HISTORY_KEY]);
   const history = stored[SSI_HISTORY_KEY] || [];
-  const today   = new Date().toISOString().split('T')[0];
+  const today   = localDateKey();
   if (!history[0] || history[0].date !== today) {
     console.log('[SocialEdge] New day on startup — will fetch when LinkedIn tab is available.');
-    runFetch().catch(() => {});
+    runFetch(false).catch(() => {});
   }
   // Generate daily quest & push notification on browser start
   generateDailyQuest(true);
@@ -227,7 +245,7 @@ chrome.alarms.create('dailyFetch', { periodInMinutes: 1440 });
 chrome.alarms.create('dailyQuest', { periodInMinutes: 360 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'dailyFetch') runFetch();
+  if (alarm.name === 'dailyFetch') runFetch(false);
   if (alarm.name === 'dailyQuest') generateDailyQuest(true);
 });
 
@@ -302,7 +320,7 @@ const PILLAR_NAMES = {
 };
 
 async function generateDailyQuest(sendNotification = false) {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateKey();
   const stored = await chrome.storage.local.get([QUEST_KEY, QUEST_HIST_KEY, ACT_KEY_BG, SSI_HISTORY_KEY]);
 
   // Don't regenerate if already have today's quest
@@ -331,7 +349,7 @@ async function generateDailyQuest(sendNotification = false) {
   const last2Days = [todayStr];
   for (let i = 1; i <= 2; i++) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    last2Days.push(d.toISOString().split('T')[0]);
+    last2Days.push(localDateKey(d));
   }
   for (const day of last2Days) {
     const dayAct = doneActivities[day];
@@ -496,7 +514,7 @@ async function getActivityStreak() {
   // Start from yesterday (today is in progress)
   d.setDate(d.getDate() - 1);
   for (let i = 0; i < 365; i++) {
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = localDateKey(d);
     const dayActs = acts[dateStr];
     if (dayActs && Object.values(dayActs).some(arr => arr.some(Boolean))) {
       streak++;
@@ -506,7 +524,7 @@ async function getActivityStreak() {
     }
   }
   // If today also has activity, count it too
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateKey();
   const todayActs = acts[todayStr];
   if (todayActs && Object.values(todayActs).some(arr => arr.some(Boolean))) {
     streak++;
@@ -782,7 +800,7 @@ async function replayAnalytics() {
     const HISTORY_KEY = 'liAnalyticsHistory';
     const histStored = await chrome.storage.local.get([HISTORY_KEY]);
     const history = histStored[HISTORY_KEY] || [];
-    const todayDate = new Date(now).toISOString().split('T')[0];
+    const todayDate = localDateKey(now);
     const snapshot = {
       ts: now,
       date: todayDate,
@@ -1675,7 +1693,7 @@ async function replayProfileTips() {
 
     const result = {
       ts: Date.now(),
-      date: new Date().toISOString().split('T')[0],
+      date: localDateKey(),
       slug,
       sections,
       tips,
@@ -2015,7 +2033,7 @@ async function fetchJobSuggestions() {
 
     const stored = {
       ts: Date.now(),
-      date: new Date().toISOString().split('T')[0],
+      date: localDateKey(),
       jobs,
       debug: result.debug || {},
     };

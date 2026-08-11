@@ -207,7 +207,7 @@ Manually triggers a silent score fetch. SocialEdge uses an already-open LinkedIn
 
 ### Export JSON
 
-Downloads your full 365-day score history as a structured JSON file named `socialedge_YYYY-MM-DD.json`. Available from both the main panel and the history screen.
+Downloads your full 365-day score history and daily activity log as a structured JSON file named `socialedge_YYYY-MM-DD.json`. Available from both the main panel and the history screen. The export can be analyzed with [`analysis/analyze_ssi.py`](analysis/analyze_ssi.py) to compare activity days with subsequent pillar-score changes.
 
 ### Auto-refresh on Browser Start
 
