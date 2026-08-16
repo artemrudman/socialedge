@@ -2,6 +2,50 @@
 
 SocialEdge is a Chrome 116+ side-panel extension for LinkedIn SSI history, analytics, profile tips, job suggestions, activities, and daily tasks. You control LinkedIn access from the panel. A new install, extension startup, upgrade, or alarm does not use your LinkedIn session unless you enable the SSI-only automatic refresh setting.
 
+## Preview
+
+The side panel opens next to any open LinkedIn tab. The figures below are a mocked example, not data from a real account:
+
+```text
+┌───────────────────────────────────────────┐
+│ ⬡ SocialEdge                Profile Tips  │
+│ LinkedIn Selling Score     Updated 2m ago │
+├───────────────────────────────────────────┤
+│                   55.0                    │
+│    Overall Social Selling Score / 100     │
+│    ███████████████████░░░░░░░░░░░░░░░     │
+├──────────────┬────────────────────────────┤
+│ Professional │ 14.2                       │
+│ Brand        │ ███████████████░░░░░░░░░░░ │
+├──────────────┬────────────────────────────┤
+│ Find Right   │ 12.8                       │
+│ People       │ █████████████░░░░░░░░░░░░░ │
+├──────────────┬────────────────────────────┤
+│ Insight      │ 13.5                       │
+│ Engagement   │ ██████████████░░░░░░░░░░░░ │
+├──────────────┬────────────────────────────┤
+│ Strong       │ 14.5                       │
+│ Relationships│ ███████████████░░░░░░░░░░░ │
+├───────────────────────────────────────────┤
+│ Industry: Data Infrastructure & Analytics │
+│ Top 38%  ·  Industry avg 51.2 SSI         │
+│ Network  Top 44%  ·  avg 49.6 SSI         │
+├───────────────────────────────────────────┤
+│ ↻ Refresh Score   Analytics   Jobs        │
+├───────────────────────────────────────────┤
+│ 🕐 Score History             182 entries › │
+└───────────────────────────────────────────┘
+```
+
+The Analytics, Profile Tips, Jobs, and Daily Tasks screens use the same mocked account:
+
+| Screen | Example data |
+|---|---|
+| Analytics | 812 followers, 47 profile views this week, 6 search appearances |
+| Profile Tips | 62% complete, 3 open tips (add a featured post, request two more skill endorsements, finish the summary section) |
+| Jobs | 10 matching roles, for example "Senior Data Analyst, Acme Corp (Remote)" |
+| Daily Tasks | 2 of 5 tasks completed today |
+
 ## Install
 
 1. Clone or download this repository.
@@ -153,4 +197,4 @@ See [extension/PRIVACY_POLICY.md](extension/PRIVACY_POLICY.md) for the full data
 
 ## Credits
 
-SocialEdge was originally created by [Artyom Rudman](https://github.com/artemrudman) ([original repository](https://github.com/artemrudman/socialedge)). This fork is maintained by [Artsiom Kharytonchyk](https://github.com/AKharytonchyk). The project remains licensed under the [MIT License](LICENSE).
+[Artyom Rudman](https://github.com/artemrudman) created SocialEdge ([original repository](https://github.com/artemrudman/socialedge)). [Artsiom Kharytonchyk](https://github.com/AKharytonchyk) maintains this fork under the same [MIT License](LICENSE).
