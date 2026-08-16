@@ -1,0 +1,24 @@
+{
+  "name": "socialedge-extension",
+  "version": "2.2.0",
+  "private": true,
+  "type": "module",
+  "author": "Artsiom Kharytonchyk (https://github.com/AKharytonchyk)",
+  "contributors": [
+    "Artyom Rudman (https://github.com/artemrudman)"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test:unit": "node --test tests/extension/*.test.mjs",
+    "test:extension": "node --test tests/extension/integration/session-lifecycle.test.mjs tests/extension/integration/collector-tabs.test.mjs tests/extension/integration/migration-deletion.test.mjs tests/extension/integration/runtime-messages.test.mjs",
+    "test:release": "node --test tests/extension/integration/release-package.test.mjs",
+    "package:extension": "node scripts/package-extension.mjs",
+    "package:zip": "node scripts/package-extension.mjs --zip"
+  },
+  "devDependencies": {
+    "puppeteer": "25.4.0"
+  }
+}

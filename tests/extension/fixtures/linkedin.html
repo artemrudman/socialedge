@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Controlled LinkedIn fixture</title></head>
+<body>
+  <label>Preserved form <input name="preserved" value="unchanged"></label>
+  <div style="height:2000px"></div>
+  <main id="jobs" data-ready="true"></main>
+  <script>
+    // Simulates LinkedIn's own frontend firing its organic, csrf-token-bearing
+    // API call shortly after page load, independent of anything the extension
+    // does. Real header capture must observe *this* request, not one the
+    // extension makes itself.
+    fetch('https://www.linkedin.com/sales-api/salesApiSsi', {
+      credentials: 'include',
+      headers: {'csrf-token': 'ajax:organic-fixture-token'},
+    }).catch(() => {});
+    fetch('https://www.linkedin.com/sales-api/salesApiMe', {
+      credentials: 'include',
+      headers: {'csrf-token': 'ajax:organic-fixture-token'},
+    }).catch(() => {});
+  </script>
+</body>
+</html>

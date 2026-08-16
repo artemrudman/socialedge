@@ -1,31 +1,24 @@
 {
   "manifest_version": 3,
   "name": "SocialEdge",
-  "version": "2.1.6",
-  "description": "Track and grow your LinkedIn Social Selling Score — automatically, every day.",
+  "version": "2.1.11",
+  "description": "Track and improve your LinkedIn Social Selling Score with user-controlled refreshes.",
 
   "permissions": [
-    "cookies",
     "webRequest",
     "storage",
     "alarms",
     "scripting",
-    "tabs",
     "sidePanel",
-    "identity",
     "notifications"
   ],
   "host_permissions": [
-    "*://*.linkedin.com/*"
+    "https://www.linkedin.com/*"
   ],
 
-  "oauth2": {
-    "client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-    "scopes": ["openid", "email", "profile"]
-  },
-
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
 
   "action": {
@@ -45,26 +38,5 @@
     "16":  "icons/icon16.png",
     "48":  "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-
-  "web_accessible_resources": [
-    {
-      "resources": ["Info Plan.pdf"],
-      "matches": ["<all_urls>"]
-    }
-  ],
-
-  "content_scripts": [
-    {
-      "matches": ["*://*.linkedin.com/*"],
-      "js": ["content_main.js"],
-      "world": "MAIN",
-      "run_at": "document_start"
-    },
-    {
-      "matches": ["*://*.linkedin.com/*"],
-      "js": ["content.js"],
-      "run_at": "document_start"
-    }
-  ]
+  }
 }

@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "SocialEdge backend — auth, user management, plans",
   "main": "index.js",
+  "author": "Artsiom Kharytonchyk (https://github.com/AKharytonchyk)",
+  "contributors": [
+    "Artyom Rudman (https://github.com/artemrudman)"
+  ],
+  "license": "MIT",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"

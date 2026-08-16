@@ -2623,6 +2623,24 @@ span.t-down { color: var(--red);   font-weight: 600; }
 /* Tab bar — hidden in narrow, shown in wide */
 .dash-tabs { display: none; }
 
+.privacy-controls { width: 100%; }
+.privacy-controls h2 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); }
+.privacy-controls p { margin: 0 0 10px; font-size: 11px; line-height: 1.5; color: var(--text-3); }
+.connection-row, .privacy-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; }
+.connection-row { font-size: 12px; }
+.connection-row strong { color: var(--green); }
+.privacy-toggle-row strong, .privacy-toggle-row small { display: block; }
+.privacy-toggle-row strong { color: var(--text-1); font-size: 12px; }
+.privacy-toggle-row small { margin-top: 3px; color: var(--text-3); font-size: 10px; line-height: 1.4; }
+.privacy-toggle-row input { width: 34px; height: 18px; accent-color: var(--green); flex: 0 0 auto; }
+.privacy-action { width: 100%; margin-top: 8px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-1); cursor: pointer; }
+.privacy-action-danger { border-color: rgba(248,113,113,.5); color: var(--red); }
+.privacy-action:disabled { opacity: .55; cursor: wait; }
+.privacy-action:focus-visible, .privacy-toggle-row input:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.privacy-status { min-height: 18px; margin-top: 8px; color: var(--green); font-size: 11px; }
+.privacy-status.error { color: var(--red); }
+.tips-all-done { text-align: center; color: var(--green); padding: 20px; font-weight: 600; }
+
 @media (min-width: 700px) {
 
   /* Grid shell */

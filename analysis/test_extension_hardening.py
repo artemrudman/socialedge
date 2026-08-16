@@ -1,4 +1,5 @@
 import re
+import json
 import unittest
 from pathlib import Path
 
@@ -8,6 +9,11 @@ BACKGROUND = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
 POPUP_JS = (ROOT / "extension" / "popup.js").read_text(encoding="utf-8")
 POPUP_HTML = (ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
 POPUP_CSS = (ROOT / "extension" / "popup.css").read_text(encoding="utf-8")
+POLICY = (ROOT / "extension" / "lib" / "policy.js").read_text(encoding="utf-8")
+STORAGE = (ROOT / "extension" / "lib" / "storage.js").read_text(encoding="utf-8")
+MESSAGES = (ROOT / "extension" / "lib" / "messages.js").read_text(encoding="utf-8")
+COLLECTION = (ROOT / "extension" / "lib" / "collection.js").read_text(encoding="utf-8")
+MANIFEST = json.loads((ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
 
 
 def relative_luminance(hex_color):
@@ -34,10 +40,13 @@ class ExtensionHardeningTests(unittest.TestCase):
             self.assertNotIn("toISOString().split", source)
 
     def test_header_capture_is_allowlisted_and_excludes_credentials(self):
-        capture = BACKGROUND.split("const allowedHeaders = new Set([", 1)[1].split("]);", 1)[0]
+        capture = POLICY.split("export const ALLOWED_HEADERS = Object.freeze([", 1)[1].split("]);", 1)[0]
         self.assertEqual(
             set(re.findall(r"'([^']+)'", capture)),
-            {"accept", "csrf-token", "x-li-lang", "x-restli-protocol-version"},
+            {
+                "accept", "csrf-token", "x-li-lang", "x-restli-protocol-version",
+                "x-li-identity", "x-li-page-instance", "x-li-track",
+            },
         )
         self.assertNotIn("'cookie'", capture)
         self.assertNotIn("'authorization'", capture)
@@ -48,9 +57,64 @@ class ExtensionHardeningTests(unittest.TestCase):
         )[0]
         self.assertNotIn('action: "fetchAnalytics"', initial_load)
         self.assertNotIn('action: "fetchNow"', initial_load)
-        self.assertIn("async function runFetch(allowNavigation = true)", BACKGROUND)
-        self.assertIn("runFetch(false)", BACKGROUND)
-        self.assertIn("if (!allowNavigation)", BACKGROUND)
+        self.assertIn("validateAutomaticRefresh", BACKGROUND)
+        self.assertIn("if (preference.enabled) await collectFeature('ssi', 'automatic')", BACKGROUND)
+        self.assertNotIn("chrome.tabs.update", BACKGROUND)
+        self.assertNotIn("tabs[0]", BACKGROUND)
+
+    def test_cookie_capability_is_absent(self):
+        manifest_permissions = set(MANIFEST.get("permissions", []))
+        extension_source = "\n".join((BACKGROUND, POPUP_JS, POLICY, STORAGE, COLLECTION))
+        self.assertNotIn("cookies", manifest_permissions)
+        self.assertNotIn("chrome.cookies", extension_source)
+        self.assertNotIn("JSESSIONID", extension_source)
+        self.assertNotIn("response.text(", extension_source)
+        self.assertNotIn("body.slice", extension_source)
+
+    def test_session_context_is_volatile_bounded_and_auth_failures_evict(self):
+        self.assertIn("session: storage.session", BACKGROUND)
+        self.assertIn("CONTEXT_TTL_MS = 24 * 60 * 60 * 1000", POLICY)
+        self.assertIn("now >= context.expiresAt", POLICY)
+        auth_branch = BACKGROUND.split("result?.status === 401", 1)[1].split("}", 1)[0]
+        self.assertIn("clearAuthenticationState", auth_branch)
+
+    def test_migration_and_deletion_use_exact_key_registries(self):
+        self.assertIn("export const LEGACY_KEYS", STORAGE)
+        self.assertIn("await storage.local.remove(LEGACY_KEYS)", STORAGE)
+        self.assertIn("_se_session", STORAGE)
+        self.assertIn("disabledAutomaticRefresh", STORAGE)
+        self.assertNotIn("storage.local.clear", STORAGE)
+        self.assertIn("operations.cancelAll", BACKGROUND)
+        self.assertGreaterEqual(BACKGROUND.count("operations.canWrite"), 4)
+
+    def test_storage_and_export_exclude_raw_debug_and_bind_records(self):
+        self.assertIn("accountBinding", STORAGE)
+        self.assertIn("schemaVersion: 2", STORAGE)
+        self.assertNotRegex(BACKGROUND, r"(?:raw|debug|snippet)\s*:")
+        export_block = POPUP_JS.split("const payload = {", 1)[1].split("};", 1)[0]
+        self.assertIn("schema_version: 2", export_block)
+        self.assertNotIn("accountBinding", export_block)
+
+    def test_manifest_and_runtime_messages_are_least_privilege(self):
+        self.assertEqual(MANIFEST.get("host_permissions"), ["https://www.linkedin.com/*"])
+        self.assertNotIn("identity", MANIFEST.get("permissions", []))
+        self.assertNotIn("tabs", MANIFEST.get("permissions", []))
+        self.assertNotIn("content_scripts", MANIFEST)
+        self.assertNotIn("web_accessible_resources", MANIFEST)
+        self.assertNotIn("oauth2", MANIFEST)
+        self.assertIn("validateSender(sender, chrome.runtime.id)", BACKGROUND)
+        self.assertIn("validateRequest(rawMessage)", BACKGROUND)
+        self.assertNotIn("storeSSI", BACKGROUND)
+        self.assertNotIn("storeAnalytics", BACKGROUND)
+        self.assertFalse((ROOT / "extension" / "content.js").exists())
+        self.assertFalse((ROOT / "extension" / "content_main.js").exists())
+
+    def test_collected_values_are_rendered_with_safe_dom_properties(self):
+        self.assertIn("title.textContent = job.title", POPUP_JS)
+        self.assertIn("description.textContent = tip.text", POPUP_JS)
+        self.assertIn('url.hostname !== "www.linkedin.com"', POPUP_JS)
+        self.assertNotIn("innerHTML = data.jobs", POPUP_JS)
+        self.assertNotIn("innerHTML = data.tips", POPUP_JS)
 
     def test_projection_is_labeled_and_has_minimum_sample(self):
         self.assertIn("function computeTrendProjection", POPUP_JS)

@@ -1,4 +1,101 @@
+// SOCIALEDGE_DEBUG_BUILD 2.1.11-analytics-scrape-fix
 // ── Activity definitions (10 per pillar) ───────────────────────────────────────
+const SAFE_ERROR_MESSAGES = Object.freeze({
+  invalid_request: "SocialEdge could not send that request.",
+  not_authorized: "Start the refresh yourself or enable automatic refresh.",
+  session_expired: "Your LinkedIn session expired. Sign in and try again.",
+  account_changed: "Your LinkedIn account changed. Reconnect before refreshing.",
+  account_unverified: "Open LinkedIn and make sure you are signed in, then try again.",
+  no_context: "Open LinkedIn, sign in, and try again.",
+  context_closed: "The temporary collection tab was closed. Try again.",
+  timeout: "LinkedIn did not respond in time. Try again.",
+  service_error: "LinkedIn could not complete the request. Try again.",
+  invalid_response: "LinkedIn returned data SocialEdge could not safely use.",
+  cancelled: "The collection was cancelled.",
+  migration_failed: "Stored data could not be upgraded safely.",
+  internal_error: "SocialEdge could not complete the request.",
+});
+
+const sendRuntimeMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+
+function requestBackground(request) {
+  return new Promise((resolve, reject) => {
+    sendRuntimeMessage(request, response => {
+      if (chrome.runtime.lastError) {
+        reject(Object.assign(new Error(SAFE_ERROR_MESSAGES.internal_error), {code: "internal_error"}));
+        return;
+      }
+      if (!response || response.ok !== true) {
+        const code = response?.error?.code in SAFE_ERROR_MESSAGES ? response.error.code : "internal_error";
+        reject(Object.assign(new Error(SAFE_ERROR_MESSAGES[code]), {code, retryable: Boolean(response?.error?.retryable)}));
+        return;
+      }
+      resolve(response.data);
+    });
+  });
+}
+
+function requestBackgroundCallback(request, callback = () => {}) {
+  requestBackground(request).then(callback).catch(error => callback({error: error.message, code: error.code}));
+}
+
+async function refreshPrivacySettings() {
+  const toggle = document.getElementById("auto-refresh-toggle");
+  const connection = document.getElementById("connection-status");
+  if (!toggle || !connection) return;
+  try {
+    const settings = await requestBackground({action: "getPrivacySettings"});
+    toggle.checked = settings.automaticRefresh.enabled;
+    connection.textContent = settings.connectionStatus === "connected" ? "Connected" : "Disconnected";
+  } catch (error) {
+    toggle.checked = false;
+    connection.textContent = "Unavailable";
+  }
+}
+
+function setPrivacyStatus(message, isError = false) {
+  const status = document.getElementById("privacy-status");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+}
+
+async function runDeletion(action, confirmation) {
+  if (!window.confirm(confirmation)) return;
+  const buttons = [document.getElementById("clear-linkedin-data"), document.getElementById("disconnect-linkedin")].filter(Boolean);
+  buttons.forEach(button => { button.disabled = true; });
+  setPrivacyStatus("Removing LinkedIn data…");
+  try {
+    await requestBackground({action, confirmed: true});
+    allActivities = {};
+    renderHistory([]);
+    await refreshPrivacySettings();
+    setPrivacyStatus(action === "disconnectLinkedIn" ? "LinkedIn disconnected." : "LinkedIn data cleared.");
+  } catch (error) {
+    setPrivacyStatus(error.message, true);
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  refreshPrivacySettings();
+  document.getElementById("auto-refresh-toggle")?.addEventListener("change", async event => {
+    const enabled = event.currentTarget.checked;
+    try {
+      await requestBackground(enabled
+        ? {action: "setAutomaticRefresh", enabled: true, consentVersion: "privacy-v1", features: ["ssi"]}
+        : {action: "setAutomaticRefresh", enabled: false});
+      setPrivacyStatus(enabled ? "Automatic SSI refresh enabled." : "Automatic refresh disabled.");
+    } catch (error) {
+      event.currentTarget.checked = false;
+      setPrivacyStatus(error.message, true);
+    }
+  });
+  document.getElementById("clear-linkedin-data")?.addEventListener("click", () => runDeletion("clearLinkedInData", "Clear all LinkedIn-derived data and disable automatic refresh?"));
+  document.getElementById("disconnect-linkedin")?.addEventListener("click", () => runDeletion("disconnectLinkedIn", "Disconnect LinkedIn, clear all LinkedIn-derived data, and disable automatic refresh?"));
+});
+
 const ACTIVITIES = {
   prof_brand: {
     name: "Professional Brand",
@@ -72,6 +169,53 @@ const PILLAR_KEYS = [
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
 const $ = (id) => document.getElementById(id);
+
+// ── Full-screen panel show/hide ─────────────────────────────────────────────
+// Support, pillar/activity detail, Quest, History, Analytics, Profile Tips,
+// and Jobs each slide in via position:fixed + a CSS transform toggled by an
+// "open" class. Toggling only that class was found to be visually unreliable
+// in this codebase's target browsers: confirmed by direct DOM inspection, the
+// computed style correctly reported the closed transform value while the
+// panel still rendered on top of the dashboard at its open position. Wide
+// (desktop) mode already sidesteps this entirely by driving visibility with
+// display:none/flex via a "dash-active" class instead of a transform — that
+// works reliably, so the same principle now applies to narrow mode: an
+// element's actual display is the one thing confirmed to reliably hide it,
+// so it becomes the authoritative hidden state everywhere. The existing CSS
+// transition still plays the slide; display:none is only applied once that
+// transition has actually finished (or immediately, as a fallback, if it
+// never starts, e.g. the panel was never opened in the first place).
+const SLIDE_SCREEN_IDS = [
+  "detail-screen", "quest-screen", "history-screen", "act-detail-screen",
+  "analytics-screen", "tips-screen", "jobs-screen", "support-screen",
+];
+
+function openScreen(el) {
+  if (!el) return;
+  el.style.display = "";
+  // Let the browser paint the "visible, not yet open" state at least once
+  // before adding "open" — changing display and starting the transform
+  // transition in the same frame makes the transition snap instead of
+  // animating.
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("open")));
+}
+
+function closeScreen(el) {
+  if (!el) return;
+  if (!el.classList.contains("open")) {
+    el.style.display = "none";
+    return;
+  }
+  el.classList.remove("open");
+  const hide = () => { el.style.display = "none"; };
+  el.addEventListener("transitionend", hide, { once: true });
+  setTimeout(hide, 400); // fallback in case the transition never fires
+}
+
+for (const id of SLIDE_SCREEN_IDS) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "none";
+}
 
 function fmt(v, dec = 1) {
   return v == null ? "—" : Number(v).toFixed(dec);
@@ -152,18 +296,12 @@ function today() {
 }
 
 async function loadActivities() {
-  return new Promise((res) =>
-    chrome.storage.local.get([ACT_KEY], (r) => res(r[ACT_KEY] || {})),
-  );
+  try { return await requestBackground({action: "getActivities"}); }
+  catch { return {}; }
 }
 
 async function saveActivitiesForDate(date, pillarKey, checkedArr) {
-  const all = await loadActivities();
-  if (!all[date]) all[date] = {};
-  all[date][pillarKey] = checkedArr;
-  return new Promise((res) =>
-    chrome.storage.local.set({ [ACT_KEY]: all }, res),
-  );
+  return requestBackground({action: "saveActivities", date, pillar: pillarKey, values: checkedArr});
 }
 
 function hasActivity(allActivities, date) {
@@ -399,11 +537,11 @@ async function openDetail(key) {
   // Hide confirmation
   $("save-confirm").classList.add("hidden");
 
-  detailScreen.classList.add("open");
+  openScreen(detailScreen);
 }
 
 function closeDetail() {
-  detailScreen.classList.remove("open");
+  closeScreen(detailScreen);
   currentPillarKey = null;
 }
 
@@ -445,7 +583,7 @@ $("save-activity-btn").addEventListener("click", async () => {
   setTimeout(() => conf.classList.add("hidden"), 2500);
 
   // Refresh history table to update Act. column
-  chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
+  requestBackgroundCallback({ action: "getHistory" }, (history) => {
     if (history?.length) renderHistory(history);
   });
 });
@@ -532,17 +670,17 @@ function openActDetail(date) {
       .join("");
   }
 
-  actDetailScreen.classList.add("open");
+  openScreen(actDetailScreen);
 }
 
 $("act-detail-back").addEventListener("click", () => {
-  actDetailScreen.classList.remove("open");
+  closeScreen(actDetailScreen);
 });
 
 // ── Initial load ─────────────────────────────────────────────────────────────────
 async function loadAndRender() {
   allActivities = await loadActivities();
-  chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
+  requestBackgroundCallback({ action: "getHistory" }, (history) => {
     if (history?.length) {
       render(history[0], history[1]);
       renderHistory(history);
@@ -574,7 +712,7 @@ function showSetupCard() {
     <div class="setup-desc">Let's capture your LinkedIn Social Selling Index score. Follow these quick steps:</div>
     <ol class="setup-steps">
       <li><span class="setup-step-num">1</span> Open <a href="https://www.linkedin.com" target="_blank" rel="noopener">linkedin.com</a> in a tab and sign in</li>
-      <li><span class="setup-step-num">2</span> Click <strong>Refresh Score</strong> below — we'll fetch your SSI automatically</li>
+      <li><span class="setup-step-num">2</span> Click <strong>Refresh Score</strong>. SocialEdge may open an inactive temporary LinkedIn tab and closes it after collection.</li>
       <li><span class="setup-step-num">3</span> Done! Your score updates daily from now on</li>
     </ol>
     <div class="setup-hint">Your score will appear here within a few seconds after refresh.</div>
@@ -645,17 +783,21 @@ document.querySelectorAll(".dash-tab").forEach(btn => {
 
 function applyWideMode() {
   if (isWideMode()) {
-    // Open panels (needed for JS that checks .open)
+    // Wide mode drives visibility entirely through "dash-active" + the
+    // display:none/flex media-query rules in popup.css, not through "open"
+    // or display:none set here for narrow mode — clear any leftover inline
+    // override so that CSS can take over correctly. "open" itself is kept
+    // for other JS that checks it, per the existing wide-mode CSS comment.
     for (const id of Object.values(DASH_TAB_MAP)) {
       const el = $(id);
-      if (el) el.classList.add("open");
+      if (el) { el.classList.add("open"); el.style.display = ""; }
     }
     switchDashTab(_activeDashTab);
     loadAnalytics();
   } else {
     for (const id of Object.values(DASH_TAB_MAP)) {
       const el = $(id);
-      if (el) el.classList.remove("open", "dash-active");
+      if (el) { el.classList.remove("open", "dash-active"); el.style.display = "none"; }
     }
     _wideInited = false;
   }
@@ -735,7 +877,7 @@ function renderQuest(quest) {
       syncQuestToActivities(pillar, parseInt(idxStr, 10), item.done);
 
       // Persist quest state
-      chrome.runtime.sendMessage({
+      requestBackgroundCallback({
         action: "updateQuestItem",
         itemId: id,
         done: item.done,
@@ -743,7 +885,7 @@ function renderQuest(quest) {
 
       renderQuest(quest);
       // Refresh streak after toggling
-      chrome.runtime.sendMessage({ action: "getStreak" }, (s) => updateStreak(s || 0));
+      requestBackgroundCallback({ action: "getStreak" }, (s) => updateStreak(s || 0));
     });
   });
 
@@ -753,7 +895,7 @@ function renderQuest(quest) {
       e.stopPropagation();
       const id = btn.dataset.swapId;
       btn.classList.add("swapping");
-      chrome.runtime.sendMessage({ action: "swapQuestItem", itemId: id }, (updated) => {
+      requestBackgroundCallback({ action: "swapQuestItem", itemId: id }, (updated) => {
         if (updated) renderQuest(updated);
       });
     });
@@ -769,10 +911,7 @@ async function syncQuestToActivities(pillarKey, idx, done) {
     all[todayStr][pillarKey] = new Array(itemCount).fill(false);
   }
   all[todayStr][pillarKey][idx] = done;
-  await new Promise(res =>
-    chrome.storage.local.set({ [ACT_KEY]: all }, res),
-  );
-  allActivities = all;
+  allActivities = await saveActivitiesForDate(todayStr, pillarKey, all[todayStr][pillarKey]);
 }
 
 function updateStreak(streak) {
@@ -802,7 +941,7 @@ function updateQuestDot(quest) {
 
 // Open quest screen
 $("quest-trigger").addEventListener("click", () => {
-  questScreen.classList.add("open");
+  openScreen(questScreen);
   // Mark as seen — hide dot
   if (_currentQuest?.date) {
     chrome.storage.local.set({ [QUEST_SEEN_KEY]: _currentQuest.date });
@@ -810,15 +949,15 @@ $("quest-trigger").addEventListener("click", () => {
   }
 });
 $("quest-back-btn").addEventListener("click", () => {
-  questScreen.classList.remove("open");
+  closeScreen(questScreen);
 });
 
 // Load quest on popup open
-chrome.runtime.sendMessage({ action: "getDailyQuest" }, (quest) => {
+requestBackgroundCallback({ action: "getDailyQuest" }, (quest) => {
   renderQuest(quest);
   updateQuestDot(quest);
 });
-chrome.runtime.sendMessage({ action: "getStreak" }, (streak) => {
+requestBackgroundCallback({ action: "getStreak" }, (streak) => {
   updateStreak(streak || 0);
 });
 
@@ -842,7 +981,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
   }
   if (area === "local" && changes.dailyActivities) {
-    allActivities = changes.dailyActivities.newValue || {};
+    allActivities = changes.dailyActivities.newValue?.days || {};
   }
 });
 
@@ -879,7 +1018,7 @@ $("btn-refresh").addEventListener("click", () => {
   if (btn.classList.contains('loading')) return;
   animateBtn(btn, REFRESH_BTN_HTML, 'loading');
 
-  chrome.runtime.sendMessage({ action: "fetchNow" }, (result) => {
+  requestBackgroundCallback({ action: "fetchNow" }, (result) => {
     if (!result || result.error) {
       animateBtn(btn, REFRESH_BTN_HTML, 'error');
       // Show user-friendly error in status bar
@@ -892,7 +1031,7 @@ $("btn-refresh").addEventListener("click", () => {
     }
     animateBtn(btn, REFRESH_BTN_HTML, 'success');
     hideSetupCard();
-    chrome.runtime.sendMessage({ action: "getHistory" }, (history) => {
+    requestBackgroundCallback({ action: "getHistory" }, (history) => {
       if (history?.length) {
         render(history[0], history[1]);
         renderHistory(history);
@@ -1273,24 +1412,24 @@ function initChart(history) {
 const historyScreen = $("history-screen");
 
 $("btn-history").addEventListener("click", () => {
-  historyScreen.classList.add("open");
+  openScreen(historyScreen);
   // Canvas was hidden (zero size) before open — redraw now that it has dimensions
   requestAnimationFrame(() => requestAnimationFrame(drawChart));
 });
 $("history-back-btn").addEventListener("click", () =>
-  historyScreen.classList.remove("open"),
+  closeScreen(historyScreen),
 );
 
 // ── Export buttons ────────────────────────────────────────────────────────────────
 async function doExport() {
   const history = await new Promise((resolve) =>
-    chrome.runtime.sendMessage({ action: "getHistory" }, resolve),
+    requestBackgroundCallback({ action: "getHistory" }, resolve),
   );
   const activities = await loadActivities();
   const payload = {
-    schema_version: 1,
+    schema_version: 2,
     exported_at: new Date().toISOString(),
-    ssi_history: history || [],
+    ssi_history: (history || []).map(({date, collectedAt, parsed}) => ({date, collectedAt, parsed})),
     daily_activities: activities,
     activity_catalog: Object.fromEntries(
       Object.entries(ACTIVITIES).map(([pillar, definition]) => [
@@ -1316,7 +1455,7 @@ $("btn-export-history").addEventListener("click", doExport);
 const analyticsScreen = $("analytics-screen");
 
 $("btn-analytics").addEventListener("click", () => {
-  analyticsScreen.classList.add("open");
+  openScreen(analyticsScreen);
   loadAnalytics();
 });
 
@@ -1326,7 +1465,7 @@ $("analytics-refresh-btn").addEventListener("click", () => {
   if (btn.classList.contains('loading')) return;
   animateBtn(btn, ANALYTICS_BTN_HTML, 'loading');
 
-  chrome.runtime.sendMessage({ action: "fetchAnalytics" }, (result) => {
+  requestBackgroundCallback({ action: "fetchAnalytics" }, (result) => {
     if (!result || result.error) {
       animateBtn(btn, ANALYTICS_BTN_HTML, 'error');
       return;
@@ -1336,7 +1475,7 @@ $("analytics-refresh-btn").addEventListener("click", () => {
   });
 });
 $("analytics-back-btn").addEventListener("click", () =>
-  analyticsScreen.classList.remove("open"),
+  closeScreen(analyticsScreen),
 );
 
 function fmtNum(v) {
@@ -1393,7 +1532,7 @@ function renderAnalytics(data) {
   const engagements = cont.engagements;
   const uniqueViews = cont.uniqueViews;
 
-  const latestTs = Math.max(net.ts || 0, cont.ts || 0, dash.ts || 0);
+  const latestTs = Math.max(net.collectedAt || 0, cont.collectedAt || 0, dash.collectedAt || 0);
 
   const svgEye = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
     <path d="M1 7C1 7 3.5 2.5 7 2.5S13 7 13 7s-2.5 4.5-6 4.5S1 7 1 7z"
@@ -1454,10 +1593,7 @@ let analyticsActiveMetric = 'followers';
 let analyticsHoverIdx = -1;
 
 function getAnalyticsHistory() {
-  // Pull from liAnalyticsHistory: array of timestamped snapshots
-  return new Promise(resolve => {
-    chrome.storage.local.get(['liAnalyticsHistory'], r => resolve(r.liAnalyticsHistory || []));
-  });
+  return requestBackground({action: 'getAnalyticsHistory'}).catch(() => []);
 }
 
 function buildAnalyticsChartTabs(history) {
@@ -1730,7 +1866,7 @@ async function initAnalyticsChart() {
 }
 
 function loadAnalytics() {
-  chrome.runtime.sendMessage({ action: "getAnalytics" }, (data) => {
+  requestBackgroundCallback({ action: "getAnalytics" }, (data) => {
     renderAnalytics(data || {});
     initAnalyticsChart();
   });
@@ -1757,7 +1893,7 @@ const tipsScreen = $("tips-screen");
 // Header Profile Tips button (narrow mode) — opens tips panel
 const headerTipsBtn = $("header-tips-btn");
 if (headerTipsBtn) headerTipsBtn.addEventListener("click", () => {
-  tipsScreen.classList.add("open");
+  openScreen(tipsScreen);
   loadProfileTips();
 });
 
@@ -1767,13 +1903,12 @@ if (btnJobs) btnJobs.addEventListener("click", () => {
   if (isWideMode()) {
     switchDashTab("jobs");
   } else {
-    const jobsScreen = $("jobs-screen");
-    if (jobsScreen) jobsScreen.classList.add("open");
+    openScreen($("jobs-screen"));
     loadJobs();
   }
 });
 $("tips-back-btn").addEventListener("click", () =>
-  tipsScreen.classList.remove("open"),
+  closeScreen(tipsScreen),
 );
 
 const TIPS_BTN_HTML = `${REFRESH_SVG} Analyze`;
@@ -1783,7 +1918,7 @@ $("tips-refresh-btn").addEventListener("click", () => {
   btn.classList.add('loading');
   btn.innerHTML = `${REFRESH_SVG} Analyzing…`;
 
-  chrome.runtime.sendMessage({ action: "fetchProfileTips" }, (result) => {
+  requestBackgroundCallback({ action: "fetchProfileTips" }, (result) => {
     btn.classList.remove('loading');
     if (!result || result.error) {
       btn.innerHTML = `${REFRESH_SVG} Try again`;
@@ -1809,7 +1944,7 @@ const PILLAR_LABELS = {
 };
 
 function loadProfileTips() {
-  chrome.runtime.sendMessage({ action: "getProfileTips" }, (data) => {
+  requestBackgroundCallback({ action: "getProfileTips" }, (data) => {
     if (data && data.tips) renderProfileTips(data);
   });
 }
@@ -1857,8 +1992,8 @@ function renderProfileTips(data) {
   contentEl.classList.remove("hidden");
 
   // Gauge
-  const score = data.score || { pct: 0, complete: 0, weak: 0, missing: 0 };
-  const pct = score.pct;
+  const score = data.score || { percentage: 0, complete: 0, weak: 0, missing: 0 };
+  const pct = score.percentage || 0;
   const circumference = 2 * Math.PI * 52; // ~326.7
   const dashLen = (pct / 100) * circumference;
   arcEl.setAttribute("stroke-dasharray", `${dashLen} ${circumference}`);
@@ -1870,63 +2005,61 @@ function renderProfileTips(data) {
 
   pctEl.textContent = pct + "%";
 
-  statsEl.innerHTML = `
-    <div class="tips-stat-row"><span class="tips-stat-dot complete"></span>${score.complete} complete</div>
-    <div class="tips-stat-row"><span class="tips-stat-dot weak"></span>${score.weak} needs work</div>
-    <div class="tips-stat-row"><span class="tips-stat-dot missing"></span>${score.missing} missing</div>
-  `;
+  statsEl.replaceChildren();
+  for (const [name, label] of [["complete", "complete"], ["weak", "needs work"], ["missing", "missing"]]) {
+    const row = document.createElement("div");
+    row.className = "tips-stat-row";
+    const dot = document.createElement("span");
+    dot.className = `tips-stat-dot ${name}`;
+    row.append(dot, document.createTextNode(`${score[name] || 0} ${label}`));
+    statsEl.append(row);
+  }
 
   // Sections overview — show all sections with status
   if (data.sections) {
-    sectionsEl.innerHTML = Object.entries(data.sections)
-      .filter(([key]) => SECTION_NAMES[key])
-      .map(([key, sec]) => {
-        const st = sec.status || 'missing';
-        return `<div class="tips-sec-item">
-          <span class="tips-sec-icon ${st}">${STATUS_ICONS[st]}</span>
-          <span>${SECTION_NAMES[key]}</span>
-        </div>`;
-      }).join('');
+    sectionsEl.replaceChildren();
+    for (const [key, section] of Object.entries(data.sections).filter(([name]) => SECTION_NAMES[name])) {
+      const status = ["complete", "weak", "missing"].includes(section.status) ? section.status : "missing";
+      const item = document.createElement("div");
+      item.className = "tips-sec-item";
+      const icon = document.createElement("span");
+      icon.className = `tips-sec-icon ${status}`;
+      icon.textContent = STATUS_ICONS[status];
+      const name = document.createElement("span");
+      name.textContent = SECTION_NAMES[key];
+      item.append(icon, name);
+      sectionsEl.append(item);
+    }
   }
 
   // Tips list
   if (!data.tips.length) {
     listTitle.style.display = 'none';
-    listEl.innerHTML = `<div style="text-align:center;color:var(--green);padding:20px;font-weight:600;">
-      Your profile looks great! No major improvements needed.
-    </div>`;
+    listEl.replaceChildren();
+    const done = document.createElement("div");
+    done.className = "tips-all-done";
+    done.textContent = "Your profile looks great! No major improvements needed.";
+    listEl.append(done);
     return;
   }
 
   listTitle.style.display = '';
-  listEl.innerHTML = data.tips.map(tip => `
-    <div class="tip-card">
-      <div class="tip-card-header">
-        <span class="tip-card-title">${tip.title}</span>
-        <span class="tip-impact ${tip.impact}">${tip.impact}</span>
-      </div>
-      <div class="tip-card-desc">${tip.desc}</div>
-      <div class="tip-card-meta">
-        <span class="tip-pillar-badge">${PILLAR_LABELS[tip.pillar] || tip.pillar}</span>
-        ${tip.boosted ? '<span class="tip-boosted">&#9889; Priority boost</span>' : ''}
-      </div>
-    </div>
-  `).join('');
-
-  // Debug diagnostics (collapsible) — helps fix detection issues
-  const debugEl = document.getElementById('tips-debug');
-  if (debugEl && data.debug) {
-    const d = data.debug;
-    const lines = Object.entries(d)
-      .filter(([k]) => k !== 'pageIds')
-      .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
-      .join('\n');
-    const idList = (d.pageIds || []).join(', ');
-    debugEl.innerHTML = `<details class="tips-debug-details">
-      <summary>Diagnostics</summary>
-      <pre class="tips-debug-pre">${lines}\n\npageIds: ${idList}</pre>
-    </details>`;
+  listEl.replaceChildren();
+  for (const tip of data.tips) {
+    const card = document.createElement("div");
+    card.className = "tip-card";
+    const title = document.createElement("div");
+    title.className = "tip-card-title";
+    title.textContent = SECTION_NAMES[tip.section] || "Profile improvement";
+    const description = document.createElement("div");
+    description.className = "tip-card-desc";
+    description.textContent = tip.text;
+    card.append(title, description);
+    listEl.append(card);
   }
+
+  const debugEl = document.getElementById('tips-debug');
+  if (debugEl) debugEl.replaceChildren();
 }
 
 // Live-refresh tips when background stores new data
@@ -1961,226 +2094,17 @@ $("theme-toggle").addEventListener("click", () => {
 // ── Support / About screen ────────────────────────────────────────────────────
 const supportScreen = $("support-screen");
 $("brand-btn").addEventListener("click", () =>
-  supportScreen.classList.add("open"),
+  openScreen(supportScreen),
 );
 $("support-back-btn").addEventListener("click", () =>
-  supportScreen.classList.remove("open"),
+  closeScreen(supportScreen),
 );
-
-// ── Auth / Account screen ────────────────────────────────────────────────────
-const authScreen = $("auth-screen");
-const authForms = $("auth-forms");
-const authAccount = $("auth-account");
-const loginForm = $("login-form");
-const registerForm = $("register-form");
-const tabLogin = $("tab-login");
-const tabRegister = $("tab-register");
-const userBtn = $("user-btn");
-
-function getInitials(name) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  return parts[0].slice(0, 2).toUpperCase();
-}
-
-function updateAuthUI() {
-  const user = Auth.getUser();
-  const loggedIn = Auth.isLoggedIn();
-  const pro = Auth.isPro();
-
-  // Update header user button
-  if (userBtn) userBtn.classList.toggle("logged-in", loggedIn);
-  if (userBtn) userBtn.classList.toggle("is-pro", pro);
-  const initialsEl = $("user-btn-initials");
-  if (initialsEl) {
-    if (loggedIn && user) {
-      initialsEl.textContent = getInitials(user.name);
-      initialsEl.classList.remove("hidden");
-    } else {
-      initialsEl.classList.add("hidden");
-    }
-  }
-
-  // Toggle forms vs account view (auth screen may be commented out in HTML)
-  if (!authForms || !authAccount) return;
-
-  if (loggedIn && user) {
-    authForms.classList.add("hidden");
-    authAccount.classList.remove("hidden");
-    const screenTitle = $("auth-screen-title");
-    if (screenTitle) screenTitle.textContent = "Account";
-
-    // Populate account info
-    const avatar = $("auth-avatar");
-    if (avatar) {
-      avatar.textContent = getInitials(user.name);
-      avatar.classList.toggle("pro", pro);
-    }
-    const authUserName = $("auth-user-name");
-    if (authUserName) authUserName.textContent = user.name;
-    const authUserEmail = $("auth-user-email");
-    if (authUserEmail) authUserEmail.textContent = user.email;
-
-    // Avatar image (from Google)
-    const avatarImg = $("auth-avatar-img");
-    if (avatarImg) {
-      if (user.avatarUrl) {
-        avatarImg.src = user.avatarUrl;
-        avatarImg.classList.remove("hidden");
-        avatarImg.classList.toggle("pro", pro);
-      } else {
-        avatarImg.classList.add("hidden");
-      }
-    }
-
-    // Google connected badge
-    const googleBadge = $("auth-google-linked");
-    if (googleBadge) {
-      googleBadge.classList.toggle("hidden", !user.googleLinked);
-    }
-
-    const badge = $("auth-plan-badge");
-    if (badge) {
-      badge.textContent = pro ? "Pro" : "Free";
-      badge.className = `auth-plan-badge ${pro ? "pro" : "free"}`;
-    }
-  } else {
-    authForms.classList.remove("hidden");
-    authAccount.classList.add("hidden");
-    const screenTitle = $("auth-screen-title");
-    if (screenTitle) screenTitle.textContent = "Account";
-    // Reset error states
-    $("login-error")?.classList.add("hidden");
-    $("register-error")?.classList.add("hidden");
-    $("auth-google-error")?.classList.add("hidden");
-  }
-}
-
-// Open / close auth screen
-if (userBtn) userBtn.addEventListener("click", () => {
-  updateAuthUI();
-  if (authScreen) authScreen.classList.add("open");
-});
-// Auth UI only wires up when the auth-screen is present in the DOM
-// (it's currently commented out in HTML — guard prevents null crashes)
-if (authScreen) {
-  $("auth-back-btn").addEventListener("click", () => {
-    authScreen.classList.remove("open");
-  });
-
-  // Tab switching
-  if (tabLogin) tabLogin.addEventListener("click", () => {
-    tabLogin.classList.add("active");
-    tabRegister.classList.remove("active");
-    loginForm.classList.remove("hidden");
-    registerForm.classList.add("hidden");
-    $("login-error").classList.add("hidden");
-  });
-  if (tabRegister) tabRegister.addEventListener("click", () => {
-    tabRegister.classList.add("active");
-    tabLogin.classList.remove("active");
-    registerForm.classList.remove("hidden");
-    loginForm.classList.add("hidden");
-    $("register-error").classList.add("hidden");
-  });
-
-  // Login form submit
-  if (loginForm) loginForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const email = $("login-email").value.trim();
-    const password = $("login-password").value;
-    const errEl = $("login-error");
-    const submitBtn = loginForm.querySelector(".auth-submit");
-    errEl.classList.add("hidden");
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Signing in\u2026";
-    try {
-      await Auth.login(email, password);
-      loginForm.reset();
-      updateAuthUI();
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove("hidden");
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Sign In";
-    }
-  });
-
-  // Register form submit
-  if (registerForm) registerForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = $("register-name").value.trim();
-    const email = $("register-email").value.trim();
-    const password = $("register-password").value;
-    const errEl = $("register-error");
-    const submitBtn = registerForm.querySelector(".auth-submit");
-    errEl.classList.add("hidden");
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Creating account\u2026";
-    try {
-      await Auth.register(name, email, password);
-      registerForm.reset();
-      updateAuthUI();
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove("hidden");
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Create Account";
-    }
-  });
-
-  // Google Sign-In
-  const googleBtn = $("auth-google-btn");
-  if (googleBtn) googleBtn.addEventListener("click", async () => {
-    const btn = $("auth-google-btn");
-    const errEl = $("auth-google-error");
-    errEl.classList.add("hidden");
-    btn.disabled = true;
-    btn.querySelector(".google-icon").style.display = "none";
-    btn.innerHTML = `<span class="btn-spinner"></span> Signing in\u2026`;
-    try {
-      await Auth.loginWithGoogle();
-      updateAuthUI();
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove("hidden");
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = `<svg class="google-icon" width="16" height="16" viewBox="0 0 48 48">
-        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-        <path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/>
-        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-      </svg> Continue with Google`;
-    }
-  });
-
-  // Skip / continue without account
-  const authSkip = $("auth-skip");
-  if (authSkip) authSkip.addEventListener("click", () => {
-    authScreen.classList.remove("open");
-  });
-
-  // Logout
-  const authLogout = $("auth-logout-btn");
-  if (authLogout) authLogout.addEventListener("click", async () => {
-    await Auth.logout();
-    updateAuthUI();
-    authScreen.classList.remove("open");
-  });
-}
-
-// Init auth on load
-Auth.init().then(() => updateAuthUI());
 
 // ── Jobs Suggestions ───────────────────────────────────────────────────────────
 let _jobsLoaded = false;
 
 function loadJobs() {
-  chrome.runtime.sendMessage({ action: "getJobs" }, (data) => {
+  requestBackgroundCallback({ action: "getJobs" }, (data) => {
     if (data && data.jobs?.length) {
       renderJobs(data);
       _jobsLoaded = true;
@@ -2205,37 +2129,48 @@ function renderJobs(data) {
   listEl.classList.remove("hidden");
   footerEl.classList.remove("hidden");
 
-  listEl.innerHTML = data.jobs.map((job, i) => {
-    const remoteBadge = job.workRemoteAllowed
-      ? '<span class="job-badge job-remote">Remote</span>'
-      : '';
-    const timeStr = job.timeText || '';
-    const timeBadge = timeStr ? `<span class="job-time">${timeStr}</span>` : '';
-    const logoHtml = job.logo
-      ? `<img class="job-logo" src="${job.logo}" alt="" onerror="this.style.display='none'">`
-      : `<div class="job-logo job-logo-placeholder">
-           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-             <rect x="3" y="6" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
-             <path d="M7 6V5a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-           </svg>
-         </div>`;
-
-    return `<a class="job-card" href="${job.url}" target="_blank" rel="noopener">
-      ${logoHtml}
-      <div class="job-card-body">
-        <div class="job-title">${job.title}</div>
-        <div class="job-company">${job.company}</div>
-        <div class="job-meta">
-          ${job.location ? `<span class="job-location">${job.location}</span>` : ''}
-          ${remoteBadge}
-          ${timeBadge}
-        </div>
-      </div>
-      <svg class="job-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </a>`;
-  }).join("");
+  listEl.replaceChildren();
+  for (const job of data.jobs) {
+    let url;
+    try { url = new URL(job.url); } catch { continue; }
+    if (url.protocol !== "https:" || url.hostname !== "www.linkedin.com" || !url.pathname.startsWith("/jobs/view/")) continue;
+    const card = document.createElement("a");
+    card.className = "job-card";
+    card.href = url.href;
+    card.target = "_blank";
+    card.rel = "noopener noreferrer";
+    if (job.logoUrl) {
+      try {
+        const logoUrl = new URL(job.logoUrl);
+        if (logoUrl.protocol === "https:") {
+          const logo = document.createElement("img");
+          logo.className = "job-logo";
+          logo.src = logoUrl.href;
+          logo.alt = "";
+          card.append(logo);
+        }
+      } catch { /* invalid optional logo is omitted */ }
+    }
+    const body = document.createElement("div");
+    body.className = "job-card-body";
+    const title = document.createElement("div");
+    title.className = "job-title";
+    title.textContent = job.title;
+    const company = document.createElement("div");
+    company.className = "job-company";
+    company.textContent = job.company;
+    const meta = document.createElement("div");
+    meta.className = "job-meta";
+    for (const value of [job.location, job.remote ? "Remote" : "", job.postedTime]) {
+      if (!value) continue;
+      const item = document.createElement("span");
+      item.textContent = value;
+      meta.append(item);
+    }
+    body.append(title, company, meta);
+    card.append(body);
+    listEl.append(card);
+  }
 }
 
 // Jobs refresh button
@@ -2253,19 +2188,14 @@ if ($("jobs-refresh-btn")) {
     if (listEl) listEl.classList.add("hidden");
     if (footerEl) footerEl.classList.add("hidden");
 
-    chrome.runtime.sendMessage({ action: "fetchJobs" }, (data) => {
+    requestBackgroundCallback({ action: "fetchJobs" }, (data) => {
       if (icon) icon.classList.remove("spinning");
       if (data?.error) {
-        if (emptyEl) emptyEl.innerHTML = `<p style="color:var(--red);font-size:13px">${data.error}</p>`;
+        if (emptyEl) emptyEl.textContent = data.error;
         return;
       }
       if (!data?.jobs?.length) {
-        const d = data?.debug || {};
-        if (emptyEl) emptyEl.innerHTML = `<p style="color:var(--text-3);font-size:13px">No job recommendations found. Try visiting <a href="https://www.linkedin.com/jobs/" target="_blank" style="color:var(--green)">LinkedIn Jobs</a> first.</p>
-          <details style="margin-top:12px;font-size:11px;color:var(--text-3)">
-            <summary style="cursor:pointer">Debug info</summary>
-            <pre style="white-space:pre-wrap;margin-top:4px;text-align:left">${JSON.stringify(d, null, 2)}</pre>
-          </details>`;
+        if (emptyEl) emptyEl.textContent = "No job recommendations were found. Try again after reviewing LinkedIn Jobs.";
         return;
       }
       renderJobs(data);
@@ -2276,7 +2206,7 @@ if ($("jobs-refresh-btn")) {
 // Jobs back button (narrow mode)
 if ($("jobs-back-btn")) {
   $("jobs-back-btn").addEventListener("click", () => {
-    $("jobs-screen").classList.remove("open");
+    closeScreen($("jobs-screen"));
   });
 }
 
@@ -2287,13 +2217,13 @@ const OB_STEPS_ALL = [
   {
     target: "#btn-refresh",
     title: "Getting Started",
-    desc: 'First, open <a href="https://www.linkedin.com" target="_blank" style="color:var(--green)">linkedin.com</a> in any tab and sign in. Then click Refresh Score \u2014 SocialEdge will fetch your SSI automatically. After this one-time setup, your score updates every day behind the scenes.',
+    desc: 'Sign in at <a href="https://www.linkedin.com" target="_blank" style="color:var(--green)">linkedin.com</a>, then click Refresh Score. Scheduled LinkedIn access stays off unless you enable Automatic SSI refresh in About.',
     pos: "above",
   },
   {
     target: ".hero",
     title: "Your Overall Score",
-    desc: "This is your LinkedIn Social Selling Index \u2014 a single number (0\u2013100) that shows how effectively you're building your brand, finding the right people, and engaging on LinkedIn. It updates automatically every day.",
+    desc: "This is your LinkedIn Social Selling Index, a score from 0 to 100. Refresh it yourself or enable the disclosed SSI-only daily schedule in About.",
     pos: "below",
   },
   {
@@ -2317,7 +2247,7 @@ const OB_STEPS_ALL = [
   {
     target: "#btn-history",
     title: "Score History",
-    desc: "View your full score history with trends, a visual chart, and clearly labeled linear trend projections. Every data point is saved automatically.",
+    desc: "View up to 365 collected daily scores with trends, a chart, and labeled linear trend projections. Clear LinkedIn Data removes this history.",
     pos: "above",
     narrowOnly: true,
   },
@@ -2354,6 +2284,13 @@ let OB_STEPS = getObSteps();
 let obStep = 0;
 
 function startOnboarding() {
+  // The walkthrough spotlights/measures elements on the main dashboard. Any
+  // other full-screen panel left open (Support, Analytics, a pillar detail,
+  // etc.) renders behind/around it rather than being replaced by it, since
+  // this overlay and those panels are independent, differently-positioned
+  // elements — always start from a clean base regardless of which trigger
+  // (first run, Replay Walkthrough, or any future caller) invoked this.
+  for (const id of SLIDE_SCREEN_IDS) closeScreen(document.getElementById(id));
   OB_STEPS = getObSteps();
   obStep = 0;
   $("ob-overlay").classList.remove("hidden");
@@ -2362,6 +2299,9 @@ function startOnboarding() {
 
 function endOnboarding() {
   $("ob-overlay").classList.add("hidden");
+  // The panels closeScreen() closed in startOnboarding() stay closed (their
+  // display:none is the authoritative hidden state); openScreen() clears it
+  // whenever one is legitimately opened later, so nothing needs restoring here.
   chrome.storage.local.set({ [OB_KEY]: true });
 }
 
@@ -2374,16 +2314,35 @@ function renderObStep() {
   const step = OB_STEPS[obStep];
   const targetEl = document.querySelector(step.target);
 
-  // Scroll target into view if needed
-  if (targetEl) {
-    targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
-
-  // Wait a tick for scroll to settle, then position
-  requestAnimationFrame(() => {
+  const place = () => requestAnimationFrame(() => {
     positionSpotlight(targetEl, step);
     renderObTooltip(step);
   });
+
+  if (!targetEl) {
+    place();
+    return;
+  }
+
+  // scrollIntoView({behavior:"smooth"}) animates over several hundred ms; a
+  // single requestAnimationFrame after calling it fires almost immediately,
+  // well before the scroll settles, so the spotlight/tooltip were measured
+  // against a stale mid-scroll position (confirmed: a ~100px offset between
+  // the computed spotlight position and the target's actual final position).
+  // Wait for the scroll container to report it's actually done, with a
+  // timeout fallback for the case where no scrolling was needed at all and
+  // "scrollend" never fires.
+  const scroller = document.scrollingElement || document.documentElement;
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    scroller.removeEventListener("scrollend", finish);
+    place();
+  };
+  scroller.addEventListener("scrollend", finish);
+  targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  setTimeout(finish, 500);
 }
 
 function positionSpotlight(el, step) {
@@ -2479,7 +2438,7 @@ chrome.storage.local.get([OB_KEY], (r) => {
 // Replay walkthrough from About screen
 $("replay-walkthrough").addEventListener("click", () => {
   // Close the support screen
-  $("support-screen").classList.remove("open");
+  closeScreen($("support-screen"));
   // Make sure dashboard tab is on the main "score" view
   switchDashTab("score");
   // Scroll main container to top so dashboard elements are in DOM
