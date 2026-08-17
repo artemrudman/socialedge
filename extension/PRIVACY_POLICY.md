@@ -8,7 +8,7 @@ SocialEdge processes LinkedIn data inside your Chrome profile. The current relea
 
 SocialEdge makes a LinkedIn request after you select Refresh Score, Analytics, Profile Tips, or Jobs. Startup, installation, upgrade, and scheduled alarms do not use your LinkedIn session by default.
 
-You can enable Automatic SSI refresh in About. The current `privacy-v1` consent covers SSI only and lets the daily alarm start an SSI collection. The switch starts off. You can turn it off in the same panel. Clear LinkedIn Data and Disconnect LinkedIn turn it off and require fresh consent before another scheduled request.
+You can enable Automatic SSI refresh in About. The current `privacy-v1` consent covers SSI only and lets the daily alarm start an SSI collection. The switch starts off. You can turn it off in the same panel. Clear LinkedIn Data and Disconnect LinkedIn turn it off and require fresh consent before another scheduled request. Daily task generation and notifications run without contacting LinkedIn; they reuse existing account-bound data.
 
 Chrome attaches your LinkedIn cookies to same-origin requests. SocialEdge does not read or store cookie values. During an authorized operation it may capture four request headers: `accept`, `csrf-token`, `x-li-lang`, and `x-restli-protocol-version`. SocialEdge stores a verified account-bound request context in Chrome session storage for up to 24 hours. It removes the context after expiry, a 401 or 403 response, account change, clear, or disconnect.
 
@@ -57,7 +57,15 @@ Both actions block a late collector from restoring deleted data. They preserve t
 
 ## Permissions
 
-SocialEdge uses Chrome `storage`, `webRequest`, `alarms`, `scripting`, `sidePanel`, and `notifications`, plus host access to `https://www.linkedin.com/*`. The extension uses these permissions for the storage, authorized header capture, task/SSI schedules, LinkedIn-context execution, panel, and task reminder described above.
+| Permission | Use |
+|---|---|
+| `storage` | Local minimized data, session context, consent, and migration |
+| `webRequest` | Allowlisted request-header capture during authorized SSI collection |
+| `alarms` | Local daily tasks and consented SSI schedule |
+| `scripting` | Same-origin requests and parsing inside a LinkedIn context |
+| `sidePanel` | Main interface |
+| `notifications` | Daily task reminder |
+| `https://www.linkedin.com/*` | LinkedIn request and controlled-tab access |
 
 The release does not request browser-cookie access, Chrome identity access, or the `tabs` permission. It ships no content script, page relay, OAuth configuration, or broad web-accessible resource.
 
@@ -67,7 +75,7 @@ LinkedIn receives the requests you authorize because it provides the source data
 
 ## SocialEdge authentication
 
-SocialEdge account authentication is disabled in the release. The package contains no account UI, auth module, OAuth client, identity permission, or insecure development endpoint. Upgrade migration removes the old `_se_session` value without contacting a server. A separate reviewed release must satisfy the documented HTTPS, provider-verification, token-expiry, session-revocation, logout, origin, secret, rate-limit, account-linking, and authorization checks before account authentication can return.
+SocialEdge account authentication is disabled in the release. The package contains no account UI, auth module, OAuth client, identity permission, or insecure development endpoint. Upgrade migration removes the old `_se_session` value without contacting a server. A separate reviewed release must satisfy the documented HTTPS, provider-verification, token-expiry, session-revocation, logout, origin, secret, rate-limit, account-linking, and authorization checks before account authentication can return. See [../server/README.md](../server/README.md) for that checklist.
 
 ## Contact
 

@@ -1,6 +1,6 @@
 # SSI formula research
 
-SocialEdge exports SSI snapshots together with the activities logged for each
+SocialEdge exports SSI snapshots together with the activities you logged each
 day. The analyzer turns that export into transparent lagged comparisons.
 
 ```bash
@@ -16,11 +16,11 @@ The first version reports, for every observed activity and pillar:
 - the mean pillar-score change in both groups;
 - their difference for each requested lag.
 
-Only consecutive daily SSI snapshots are compared. Gaps are excluded because a
-multi-day score change cannot be attributed to one logged activity day.
+The analyzer compares only consecutive daily SSI snapshots. It skips gaps: you
+cannot attribute a multi-day score change to one logged activity day.
 
-These are associations, not causal weights. Prefer days where one activity is
-changed at a time, keep logging zero-activity control days, and collect at least
+These are associations, not causal weights. Prefer days where you change only
+one activity, keep logging zero-activity control days, and collect at least
 30–60 daily transitions before interpreting a result.
 
 Run the tests with:

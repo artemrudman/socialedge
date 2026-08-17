@@ -4,38 +4,9 @@ SocialEdge is a Chrome 116+ side-panel extension for LinkedIn SSI history, analy
 
 ## Preview
 
-The side panel opens next to any open LinkedIn tab. The figures below are a mocked example, not data from a real account:
+The side panel opens next to any open LinkedIn tab. The screenshot below is a mocked example, not data from a real account. [`docs/marketing/`](docs/marketing/) holds the source: `panel.html` renders the real `extension/popup.css` with a fabricated dataset, and `hero.html` composes it into the shot below.
 
-```text
-┌───────────────────────────────────────────┐
-│ ⬡ SocialEdge                Profile Tips  │
-│ LinkedIn Selling Score     Updated 2m ago │
-├───────────────────────────────────────────┤
-│                   55.0                    │
-│    Overall Social Selling Score / 100     │
-│    ███████████████████░░░░░░░░░░░░░░░     │
-├──────────────┬────────────────────────────┤
-│ Professional │ 14.2                       │
-│ Brand        │ ███████████████░░░░░░░░░░░ │
-├──────────────┬────────────────────────────┤
-│ Find Right   │ 12.8                       │
-│ People       │ █████████████░░░░░░░░░░░░░ │
-├──────────────┬────────────────────────────┤
-│ Insight      │ 13.5                       │
-│ Engagement   │ ██████████████░░░░░░░░░░░░ │
-├──────────────┬────────────────────────────┤
-│ Strong       │ 14.5                       │
-│ Relationships│ ███████████████░░░░░░░░░░░ │
-├───────────────────────────────────────────┤
-│ Industry: Data Infrastructure & Analytics │
-│ Top 38%  ·  Industry avg 51.2 SSI         │
-│ Network  Top 44%  ·  avg 49.6 SSI         │
-├───────────────────────────────────────────┤
-│ ↻ Refresh Score   Analytics   Jobs        │
-├───────────────────────────────────────────┤
-│ 🕐 Score History             182 entries › │
-└───────────────────────────────────────────┘
-```
+![SocialEdge side panel showing a mocked example account at 55.0 overall SSI](docs/marketing/preview-hero.png)
 
 The Analytics, Profile Tips, Jobs, and Daily Tasks screens use the same mocked account:
 
@@ -63,112 +34,13 @@ npm run package:extension
 
 The packager writes its allowlisted output to `dist/socialedge-extension/`. It excludes tests, fixtures, the development server, databases, dormant content scripts, and account-authentication code.
 
-## LinkedIn access
-
-The four collection buttons start manual operations:
-
-- **Refresh Score** reads SSI scores and benchmark fields.
-- **Analytics** reads the displayed follower, profile-view, search, impression, and engagement counts supported by the current collector.
-- **Profile Tips** reads section completeness measurements and stores generated tip text. It does not keep profile text, a profile slug, HTML, or selector diagnostics.
-- **Jobs** reads up to ten job cards with title, company, location, LinkedIn job URL, HTTPS logo URL, posted label, and remote status.
-
-The browser attaches its own LinkedIn cookies to same-origin requests. SocialEdge does not read cookie values and does not request Chrome's `cookies` permission. It captures only `accept`, `csrf-token`, `x-li-lang`, and `x-restli-protocol-version` during an authorized operation. SocialEdge stores a verified, account-bound request context in `chrome.storage.session` for no more than 24 hours. A 401, 403, expiry, account change, clear, or disconnect removes it.
-
-SocialEdge verifies one LinkedIn account at a time before it writes or displays LinkedIn-derived records. A verified account change clears the prior account's data, disables automatic refresh, and requires a fresh manual collection. A failed identity check stores nothing and reports an account-verification error.
-
-## Automatic SSI refresh
-
-Automatic refresh is off by default. Open **About → LinkedIn privacy** to enable it. The current `privacy-v1` consent covers SSI only. The `dailyFetch` alarm may start an SSI collection while that consent remains current. Enabling the switch does not start an immediate request.
-
-Turn the switch off to stop later scheduled LinkedIn requests. **Clear LinkedIn Data** and **Disconnect LinkedIn** also turn it off. You must opt in again after either action.
-
-Daily task generation and notifications can run without contacting LinkedIn. Those local operations use existing account-bound data.
-
-## Collector isolation
-
-SocialEdge can run structured requests in an existing LinkedIn tab without changing the tab. It does not navigate, scroll, focus, or restore that user-owned tab.
-
-Some collection paths need a rendered page. SocialEdge creates a dedicated tab with `active: false`, records the tab ID in session storage, and closes it after success, failure, timeout, cancellation, or browser-worker recovery. Closing that tab during collection returns a recoverable error. Each request has a 15-second limit, tab loading has a 20-second limit, and the whole operation has a 45-second limit. A failed collection preserves the last valid snapshot.
-
-## Local data and retention
-
-SocialEdge stores these account-bound records in `chrome.storage.local`:
-
-| Data | Stored fields | Retention |
-|---|---|---|
-| SSI history | Date, collection time, overall score, four pillar scores, and displayed industry/network scores and ranks | Up to 365 daily entries |
-| Analytics | Current supported counts and up to 365 daily snapshots | Until replaced, cleared, disconnected, or account change |
-| Activities and tasks | Activity booleans, catalog task IDs/labels, completion state, and dates | Until clear, disconnect, or account change; task history is bounded to 365 days |
-| Profile Tips | Section status/counts, up to ten tip records, and summary score | Latest snapshot |
-| Jobs | Up to ten validated job projections | Latest snapshot |
-| Connection and consent | Verified opaque account binding, connection status, and automatic-refresh choice | Until clear, disconnect, consent change, or account change |
-
-SocialEdge stores request context, collection epoch, and owned temporary-tab IDs in `chrome.storage.session`. It does not retain raw SSI responses, response bodies, cookies, authorization values, page snippets, full page text, HTML, profile text, or collector debug objects.
-
-Theme and onboarding completion are separate preferences. Clear and Disconnect preserve them.
-
 ## Export
 
-The JSON export uses schema version 2. It contains minimized SSI history, activity history, and the documented activity catalog. It excludes request headers, consent timestamps, account bindings, internal schema state, raw responses, debug data, and SocialEdge account tokens.
-
-You can analyze an export with:
+Export your score and activity history as JSON from the side panel or the History screen, then analyze trends with the included script:
 
 ```bash
 python3 analysis/analyze_ssi.py socialedge_YYYY-MM-DD.json --lags 0 1 2 3 --output ssi-analysis.json
 ```
-
-## Clear and Disconnect
-
-Open **About → LinkedIn privacy**:
-
-- **Clear LinkedIn Data** asks for confirmation, cancels collection, closes owned tabs, removes LinkedIn request context, identifiers, SSI, analytics, activities/tasks, tips, and jobs, then disables automatic refresh.
-- **Disconnect LinkedIn** performs the same deletion and leaves the connection state disconnected.
-
-Both actions block late collector writes and preserve theme plus onboarding completion. Uninstalling the extension lets Chrome remove its extension storage.
-
-## Permissions
-
-The release manifest requests:
-
-| Permission | Use |
-|---|---|
-| `storage` | Local minimized data, session context, consent, and migration |
-| `webRequest` | Allowlisted request-header capture during authorized SSI collection |
-| `alarms` | Local daily tasks and consented SSI schedule |
-| `scripting` | Same-origin requests and parsing inside a LinkedIn context |
-| `sidePanel` | Main interface |
-| `notifications` | Daily task reminder |
-| `https://www.linkedin.com/*` | LinkedIn request and controlled-tab access |
-
-The release does not request `cookies`, `identity`, or `tabs`. It declares no content scripts, OAuth configuration, or broad web-accessible resources.
-
-## SocialEdge account authentication
-
-Release builds do not contain SocialEdge sign-in. They do not load `auth.js`, contact the development server, request Chrome identity access, or use an OAuth client. Migration deletes the legacy `_se_session` key without contacting a server. See [server/README.md](server/README.md) for the requirements that must pass before a separate change can enable account authentication.
-
-## Architecture
-
-```text
-extension/
-├── manifest.json
-├── background.js
-├── lib/
-│   ├── collection.js
-│   ├── messages.js
-│   ├── policy.js
-│   └── storage.js
-├── popup.html
-├── popup.js
-├── popup.css
-└── PRIVACY_POLICY.md
-
-tests/extension/       Node unit and controlled Chrome tests
-analysis/              Python analyzer and source regression tests
-scripts/               Release allowlist packager
-server/                Development-only account service, excluded from release
-```
-
-The service worker runs migration before message or alarm work. It validates the sender and exact request schema, applies account and consent policy, owns collection lifecycles, validates projections, then writes minimized records. Responses use `{ok: true, data}` or `{ok: false, error}` envelopes.
 
 ## Test
 
@@ -193,7 +65,11 @@ The controlled Chrome tests use fixtures and an isolated profile. They do not re
 - **Automatic refresh did not run:** Check the switch in About. Missing or outdated consent stays disabled.
 - **PDF download:** Open About and select **Free Boost Strategy PDF**. The PDF remains an extension-owned resource and is not exposed to websites.
 
-See [extension/PRIVACY_POLICY.md](extension/PRIVACY_POLICY.md) for the full data matrix.
+## Learn more
+
+- **Privacy and data handling**: exactly what SocialEdge reads, stores, and deletes, plus the Chrome permissions it requests. See [extension/PRIVACY_POLICY.md](extension/PRIVACY_POLICY.md).
+- **Architecture**: code layout and how the service worker processes a request. See [docs/architecture.md](docs/architecture.md).
+- **SocialEdge account authentication**: why it stays disabled in release builds and what a future reviewed release must satisfy first. See [server/README.md](server/README.md).
 
 ## Credits
 
