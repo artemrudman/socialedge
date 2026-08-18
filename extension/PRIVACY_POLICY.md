@@ -1,50 +1,82 @@
-# Privacy Policy — SocialEdge
+# Privacy Policy for SocialEdge
 
-*Last updated: April 4, 2026*
+Last updated: August 11, 2026
 
-## What data we collect
+SocialEdge processes LinkedIn data inside your Chrome profile. The current release has no SocialEdge account sign-in and sends no LinkedIn-derived record to a SocialEdge server.
 
-- **LinkedIn SSI Score**: Your Social Selling Index score and its four pillar breakdown, fetched from LinkedIn using your active session.
-- **Score History**: A local log of your daily scores stored on your device.
-- **Daily Activity Completions**: Which suggested activities you mark as done, stored locally.
-- **Account Information (optional)**: If you choose to register for a Pro account, we collect your name, email address, and avatar URL — either entered manually or obtained via Google Sign-In.
+## LinkedIn session access
 
-## How we collect it
+SocialEdge makes a LinkedIn request after you select Refresh Score, Analytics, Profile Tips, or Jobs. Startup, installation, upgrade, and scheduled alarms do not use your LinkedIn session by default.
 
-- SSI data is read from LinkedIn's own API (`linkedin.com/sales-api/salesApiSsi`) using your existing LinkedIn session cookie. The cookie is never stored, logged, or transmitted to any third party.
-- Activity completions and score history are saved to `chrome.storage.local` on your device.
-- Account data is collected only when you voluntarily register and is sent to our server over HTTPS.
+You can enable Automatic SSI refresh in About. The current `privacy-v1` consent covers SSI only and lets the daily alarm start an SSI collection. The switch starts off. You can turn it off in the same panel. Clear LinkedIn Data and Disconnect LinkedIn turn it off and require fresh consent before another scheduled request. Daily task generation and notifications run without contacting LinkedIn; they reuse existing account-bound data.
 
-## How we use it
+Chrome attaches your LinkedIn cookies to same-origin requests. SocialEdge does not read or store cookie values. During an authorized operation it may capture four request headers: `accept`, `csrf-token`, `x-li-lang`, and `x-restli-protocol-version`. SocialEdge stores a verified account-bound request context in Chrome session storage for up to 24 hours. It removes the context after expiry, a 401 or 403 response, account change, clear, or disconnect.
 
-- To display your SSI score, trends, and analytics within the extension.
-- To generate personalized daily activity suggestions.
-- To authenticate your Pro account (if registered).
+## Feature data
 
-## Data storage
+| Feature | Data read | Data stored | Retention | Export |
+|---|---|---|---|---|
+| SSI | Overall score, four pillar scores, and displayed industry/network score and rank fields | Date, collection time, verified account binding, and those parsed fields | Up to 365 daily entries; clear, disconnect, or account change removes them sooner | Minimized entries without account binding |
+| Analytics | Supported follower, connection, profile-view, search-appearance, impression, and engagement counts | Current parsed groups and up to 365 daily parsed snapshots with account binding | Until replaced or deleted; history stays within 365 daily entries | Excluded from the current export |
+| Activities and daily tasks | Checkboxes you select and task catalog choices | Account-bound daily booleans, task IDs/labels, completion state, and dates | Until clear, disconnect, or account change; task history stays bounded | Daily activity history and the documented catalog, without account binding |
+| Profile Tips | Profile section completeness measurements needed to score the supported sections | Section status/counts, up to ten tip records, summary score, date, and account binding | Latest snapshot until deletion or account change | Excluded |
+| Jobs | Up to ten displayed job cards | Job ID, title, company, location, LinkedIn job URL, optional HTTPS logo URL, posted label, remote flag, date, and account binding | Latest snapshot until deletion or account change | Excluded |
 
-- All score and activity data is stored **locally on your device** using Chrome's storage API.
-- Account data (Pro users only) is stored on our secure server.
+SocialEdge does not retain complete SSI or service responses, response bodies, page snippets, HTML, full page content, profile headline/about text, profile slugs, cookie values, authorization values, request-header logs, selector samples, stack traces, or collector debug payloads.
 
-## Data sharing
+## Account boundaries
 
-We do **not** sell, share, or transfer your data to any third parties. Your LinkedIn data is never sent to our servers — it stays entirely on your device.
+SocialEdge supports one verified LinkedIn account at a time. It adds a minimal opaque account binding to each LinkedIn-derived record. It does not expose that binding in export.
 
-## Third-party services
+If SocialEdge verifies a different account, it removes the prior account's request context, SSI, analytics, activities/tasks, tips, and jobs. It also disables automatic refresh. You must start a new manual collection before SocialEdge stores data for the new account. If SocialEdge cannot verify the account, it stores no new request context or LinkedIn-derived data.
 
-- **Google Sign-In** (optional): If you choose to sign in with Google, we use Google's OAuth service to verify your identity. We receive only your name, email, and profile picture. Google's privacy policy applies to their authentication service.
+## Temporary collection tabs
 
-## Data deletion
+SocialEdge runs structured requests in a LinkedIn context without changing your tab. A feature that needs rendered content uses an extension-owned tab created with `active: false`. SocialEdge tracks the tab and closes it after success, failure, timeout, cancellation, or worker recovery. It does not navigate, scroll, focus, or restore a tab you already own.
 
-- Uninstalling the extension deletes all locally stored data.
-- To delete your Pro account and server-side data, contact us at rudmanartyom@gmail.com.
+Each LinkedIn request stops after 15 seconds, a temporary tab load stops after 20 seconds, and the full operation stops after 45 seconds. A failed operation keeps the previous valid snapshot.
 
-## Changes to this policy
+## Storage
 
-We may update this policy from time to time. Changes will be reflected with an updated date at the top of this page.
+Chrome local storage holds minimized feature records, the connection state, automatic-refresh choice, and schema marker. Chrome session storage holds request context plus temporary-tab ownership and collection epoch state. Browser restart, extension update, clear, disconnect, authentication failure, account change, and TTL rules can remove session data before the 24-hour limit.
+
+SocialEdge preserves theme and onboarding completion when you clear or disconnect. Chrome controls extension storage deletion after uninstall.
+
+## Export
+
+Export schema version 2 includes minimized SSI history, daily activities, and the activity catalog. It excludes account bindings, request context, consent timestamps, internal schema metadata, analytics, tips, jobs, raw responses, debug data, and SocialEdge authentication material.
+
+## Delete or disconnect
+
+Open About and use one of these confirmed actions:
+
+- **Clear LinkedIn Data** cancels collection, closes owned tabs, removes LinkedIn request context, identifiers, SSI, analytics, activities/tasks, tips, and jobs, and disables automatic refresh.
+- **Disconnect LinkedIn** performs the same deletion and leaves LinkedIn disconnected.
+
+Both actions block a late collector from restoring deleted data. They preserve theme and onboarding completion.
+
+## Permissions
+
+| Permission | Use |
+|---|---|
+| `storage` | Local minimized data, session context, consent, and migration |
+| `webRequest` | Allowlisted request-header capture during authorized SSI collection |
+| `alarms` | Local daily tasks and consented SSI schedule |
+| `scripting` | Same-origin requests and parsing inside a LinkedIn context |
+| `sidePanel` | Main interface |
+| `notifications` | Daily task reminder |
+| `https://www.linkedin.com/*` | LinkedIn request and controlled-tab access |
+
+The release does not request browser-cookie access, Chrome identity access, or the `tabs` permission. It ships no content script, page relay, OAuth configuration, or broad web-accessible resource.
+
+## Third parties and sharing
+
+LinkedIn receives the requests you authorize because it provides the source data. Chrome stores extension data on your device and may sync browser-level settings according to your Chrome configuration; SocialEdge uses `storage.local` and `storage.session` for the data described here. The current release does not send LinkedIn-derived records to the development server, Google Sign-In, analytics providers, advertisers, or data brokers.
+
+## SocialEdge authentication
+
+SocialEdge account authentication is disabled in the release. The package contains no account UI, auth module, OAuth client, identity permission, or insecure development endpoint. Upgrade migration removes the old `_se_session` value without contacting a server. A separate reviewed release must satisfy the documented HTTPS, provider-verification, token-expiry, session-revocation, logout, origin, secret, rate-limit, account-linking, and authorization checks before account authentication can return. See [../server/README.md](../server/README.md) for that checklist.
 
 ## Contact
 
-If you have questions about this privacy policy, contact us at:
-
-rudmanartyom@gmail.com
+Email privacy questions to artsiom.kharytonchyk@outlook.com.

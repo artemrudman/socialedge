@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>SocialEdge — preview render</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+  body {
+    width: 1020px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 46px 0 44px;
+    background:
+      radial-gradient(circle at 20% 12%, rgba(52,211,153,.15), transparent 40%),
+      radial-gradient(circle at 82% 78%, rgba(96,165,250,.10), transparent 45%),
+      linear-gradient(165deg, #060607 0%, #0a0a0e 55%, #050506 100%);
+    position: relative;
+  }
+
+  .wordmark { text-align: center; margin-bottom: 10px; }
+  .wordmark .name {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -.5px;
+    color: #F5F5FA;
+  }
+  .wordmark .tag {
+    margin-top: 6px;
+    font-size: 13.5px;
+    color: #8A8AA0;
+    letter-spacing: .1px;
+  }
+
+  .caption-chip {
+    margin: 18px 0 46px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 16px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    color: #B8B8CC;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+  .caption-chip .sep { color: #4A4A5C; }
+
+  .stage {
+    position: relative;
+    width: 900px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .device-frame {
+    width: 400px;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow:
+      0 40px 90px -25px rgba(0,0,0,.75),
+      0 0 0 1px rgba(255,255,255,.07),
+      0 0 60px -10px rgba(52,211,153,.12);
+    background: #0C0C10;
+  }
+  .device-frame iframe {
+    display: block;
+    width: 400px;
+    border: 0;
+  }
+
+  .chip {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(19,19,25,.82);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 999px;
+    padding: 9px 16px 9px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .1px;
+    color: #F0F0F5;
+    white-space: nowrap;
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,.6);
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .chip.green .dot { background: #34D399; box-shadow: 0 0 0 4px rgba(52,211,153,.16); }
+  .chip.blue  .dot { background: #60A5FA; box-shadow: 0 0 0 4px rgba(96,165,250,.16); }
+  .chip.amber .dot { background: #FBBF24; box-shadow: 0 0 0 4px rgba(251,191,36,.16); }
+
+  svg.leaders { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+</style>
+</head>
+<body>
+
+  <div class="wordmark">
+    <div class="name">SocialEdge</div>
+    <div class="tag">The LinkedIn Social Selling Index panel that stays out of your way</div>
+  </div>
+
+  <div class="caption-chip">
+    <span>Chrome 116+</span><span class="sep">·</span><span>Manifest V3</span><span class="sep">·</span><span>Local-only storage</span>
+  </div>
+
+  <div class="stage" id="stage">
+    <svg class="leaders" id="leaders" width="1000" height="900"></svg>
+    <div class="device-frame" id="frame">
+      <iframe id="panel-frame" src="panel.html" height="700"></iframe>
+    </div>
+  </div>
+
+<script>
+function addChip(opts) {
+  var chip = document.createElement('div');
+  chip.className = 'chip ' + opts.color;
+  chip.style.top = opts.top + 'px';
+  if (opts.side === 'left') chip.style.left = opts.inset + 'px';
+  else chip.style.right = opts.inset + 'px';
+  chip.innerHTML = '<span class="dot"></span><span>' + opts.text + '</span>';
+  document.getElementById('stage').appendChild(chip);
+  return chip;
+}
+
+function drawLeader(fromX, fromY, toX, toY, color) {
+  var svg = document.getElementById('leaders');
+  var midX = (fromX + toX) / 2;
+  var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M ' + fromX + ' ' + fromY + ' C ' + midX + ' ' + fromY + ', ' + midX + ' ' + toY + ', ' + toX + ' ' + toY);
+  path.setAttribute('stroke', 'rgba(255,255,255,.35)');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('fill', 'none');
+  svg.appendChild(path);
+
+  var dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  dot.setAttribute('cx', toX); dot.setAttribute('cy', toY); dot.setAttribute('r', 4.2);
+  dot.setAttribute('fill', color);
+  svg.appendChild(dot);
+}
+
+window.addEventListener('load', function () {
+  var iframe = document.getElementById('panel-frame');
+
+  function place() {
+    var innerDoc = iframe.contentDocument;
+    var innerHeight = innerDoc.getElementById('dash').scrollHeight;
+    iframe.style.height = innerHeight + 'px';
+
+    var stageRect = document.getElementById('stage').getBoundingClientRect();
+    var frameRect = document.getElementById('frame').getBoundingClientRect();
+    var svg = document.getElementById('leaders');
+    svg.setAttribute('width', stageRect.width);
+    svg.setAttribute('height', stageRect.height);
+
+    function innerRect(id) {
+      var r = innerDoc.getElementById(id).getBoundingClientRect();
+      return {
+        top: frameRect.top - stageRect.top + r.top,
+        centerY: frameRect.top - stageRect.top + r.top + r.height / 2
+      };
+    }
+
+    var callouts = [
+      {
+        id: 'header-tips-btn', side: 'left', color: 'green',
+        text: 'Lives in your side panel', top: null
+      },
+      {
+        id: 'val-frp', side: 'right', color: 'blue',
+        text: '4 pillars, scored live', top: null
+      },
+      {
+        id: 'btn-refresh', side: 'left', color: 'amber',
+        text: 'Manual by default', top: null
+      }
+    ];
+
+    var frameLeftX = frameRect.left - stageRect.left;
+    var frameRightX = frameRect.right - stageRect.left;
+
+    callouts.forEach(function (c) {
+      var pos = innerRect(c.id);
+      var chipTop = pos.centerY - 17;
+      var chip = addChip({ side: c.side, top: chipTop, inset: 6, color: c.color, text: c.text });
+      requestAnimationFrame(function () {
+        var chipRect = chip.getBoundingClientRect();
+        var cy = chipRect.top - stageRect.top + chipRect.height / 2;
+        if (c.side === 'left') {
+          drawLeader(chipRect.right - stageRect.left, cy, frameLeftX, pos.centerY, dotColor(c.color));
+        } else {
+          drawLeader(chipRect.left - stageRect.left, cy, frameRightX, pos.centerY, dotColor(c.color));
+        }
+        chip.style.transition = 'opacity .3s, transform .3s';
+        chip.style.opacity = '1';
+        chip.style.transform = 'translateY(0)';
+      });
+    });
+  }
+
+  function dotColor(name) {
+    return name === 'green' ? '#34D399' : name === 'blue' ? '#60A5FA' : '#FBBF24';
+  }
+
+  setTimeout(place, 120);
+});
+</script>
+</body>
+</html>
